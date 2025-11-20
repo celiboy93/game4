@@ -153,30 +153,11 @@ app.post("/buy", async (c) => {
   const product = await getProduct(id as string);
   if (!product) return c.json({ success: false, message: "Product not found" });
   if (user.balance < product.price) return c.json({ success: false, message: "Insufficient Balance" });
-  
   let finalDisplayCode = "";
-  let soldKeyIdentifier = null;
-
-  if (product.type === 'shared') {
-      const currentSold = product.sharedSold || 0;
-      const capacity = product.sharedCapacity || 0;
-      if (currentSold >= capacity) return c.json({ success: false, message: "Out of Stock" });
-      
-      finalDisplayCode = product.sharedData || "";
-      soldKeyIdentifier = null; 
-      
-      const res = await kv.atomic()
-        .check(await kv.get(["products", product.id]))
-        .check(await kv.get(["users", user.username]))
-        .set(["products", product.id], { ...product, sharedSold: currentSold + 1 })
-        .set(["users", user.username], { ...user, balance: user.balance - product.price })
-        .commit();
-      if(!res.ok) return c.json({ success: false, message: "Transaction Failed. Try Again." });
-
-  } else if (product.type === "manual") {
+  let soldKeyIdentifier = null; 
+  if (product.type === "manual") {
     if (!product.stock.length) return c.json({ success: false, message: "Out of Stock" });
     finalDisplayCode = product.stock[0];
-    soldKeyIdentifier = finalDisplayCode;
     const res = await kv.atomic().check(await kv.get(["products", product.id])).check(await kv.get(["users", user.username])).set(["products", product.id], { ...product, stock: product.stock.slice(1) }).set(["users", user.username], { ...user, balance: user.balance - product.price }).commit();
     if(!res.ok) return c.json({ success: false, message: "Transaction Failed. Try Again." });
   } else {
@@ -201,10 +182,7 @@ app.post("/buy", async (c) => {
         if (!validItem) return c.json({ success: false, message: "Stock Unavailable from API" });
         finalDisplayCode = `Key: ${validItem.key}\nExpires: ${validItem.expiration_date}`;
         soldKeyIdentifier = validItem.key;
-      } catch (e) { 
-          finalDisplayCode = text;
-          soldKeyIdentifier = text; 
-      }
+      } catch (e) { finalDisplayCode = text; }
       const resKv = await kv.atomic().check(await kv.get(["users", user.username])).set(["users", user.username], { ...user, balance: user.balance - product.price }).commit();
       if(!resKv.ok) throw new Error();
       if (soldKeyIdentifier) await markKeyAsSold(soldKeyIdentifier, user.username);
@@ -212,7 +190,7 @@ app.post("/buy", async (c) => {
   }
   const tx = await addHistory(user.username, "purchase", product.name, product.price, finalDisplayCode);
   if(tx) await addGlobalSale(user.username, tx);
-  return c.json({ success: true, code: finalDisplayCode, rawCode: soldKeyIdentifier || finalDisplayCode, newBalance: user.balance - product.price });
+  return c.json({ success: true, code: finalDisplayCode, newBalance: user.balance - product.price });
 });
 
 app.get("/deposit", async (c) => {
@@ -225,6 +203,22 @@ app.get("/deposit", async (c) => {
 
 app.get("/check-stock", async (c) => {
     const id = c.req.query("id"); if(!id) return c.text("?"); const p = await getProduct(id); if(!p || p.type !== 'api') return c.text("?"); const count = await getApiAvailableStock(p); return c.text(String(count));
+});
+
+// NEW: Forgot Password Page
+app.get("/forgot", async (c) => {
+    const config = await getConfig();
+    return c.html(Layout("Forgot Password", `
+        <div class="max-w-md mx-auto glass p-8 rounded-2xl shadow-2xl mt-10 text-center">
+            <div class="text-5xl mb-4">🤔</div>
+            <h2 class="text-2xl font-bold text-white mb-4">Forgot Password?</h2>
+            <p class="text-slate-400 mb-6">Please contact the Admin on Telegram to reset your password.</p>
+            <a href="https://t.me/${config.telegram}" target="_blank" class="inline-block bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded-xl transition shadow-lg mb-4">
+                Contact Admin
+            </a>
+            <div><a href="/login" class="text-slate-500 hover:text-white text-sm">Back to Login</a></div>
+        </div>
+    `));
 });
 
 app.get("/history", async (c) => {
@@ -248,12 +242,35 @@ app.get("/admin", async (c) => {
       
       const prodIter = kv.list<Product>({ prefix: ["products"] });
       let prodRows = "";
-      for await (const { value: p } of prodIter) { const stockDisplay = p.type === 'manual' ? p.stock.length : p.type === 'shared' ? `Limit: ${p.sharedSold}/${p.sharedCapacity}` : 'Auto (API)'; prodRows += `<tr class="border-b border-slate-700 hover:bg-slate-800"><td class="p-3">${p.name}</td><td class="p-3">${p.price.toLocaleString()} Ks</td><td class="p-3">${stockDisplay}</td><td class="p-3 flex gap-2"><a href="/admin/edit?id=${p.id}" class="text-yellow-400 hover:underline">Edit</a><form action="/admin/delete" method="POST" onsubmit="return confirm('Are you sure?')" style="margin:0;"><input type="hidden" name="id" value="${p.id}"><button class="text-red-400 hover:underline">Delete</button></form></td></tr>`; }
+      for await (const { value: p } of prodIter) { const stockDisplay = p.type === 'manual' ? p.stock.length : 'Auto (API)'; prodRows += `<tr class="border-b border-slate-700 hover:bg-slate-800"><td class="p-3">${p.name}</td><td class="p-3">${p.price.toLocaleString()} Ks</td><td class="p-3">${stockDisplay}</td><td class="p-3 flex gap-2"><a href="/admin/edit?id=${p.id}" class="text-yellow-400 hover:underline">Edit</a><form action="/admin/delete" method="POST" onsubmit="return confirm('Are you sure?')" style="margin:0;"><input type="hidden" name="id" value="${p.id}"><button class="text-red-400 hover:underline">Delete</button></form></td></tr>`; }
       
       const userCursor = c.req.query("user_cursor"); const decodedUserCursor = userCursor ? decodeCursor(userCursor) : undefined;
       const userIter = kv.list<User>({ prefix: ["users"] }, { limit: 10, cursor: decodedUserCursor });
       let userListHtml = ""; let nextUserCursor = null;
-      for await (const { value: u, key } of userIter) { nextUserCursor = key; if (u.username !== user.username) { userListHtml += `<div class="flex justify-between items-center border-b border-slate-700 py-2 text-sm"><div><span class="text-slate-300 select-all cursor-pointer font-bold" onclick="document.querySelector('input[name=username]').value = '${u.username}'">${u.username}</span><span class="text-xs ml-2 ${u.isBlocked ? 'text-red-500' : 'text-green-500'}">${u.isBlocked ? '(Blocked)' : '(Active)'}</span></div><div class="flex items-center gap-2"><span class="text-green-400">${u.balance.toLocaleString()} Ks</span><form action="/admin/block" method="POST" style="margin:0"><input type="hidden" name="username" value="${u.username}"><input type="hidden" name="status" value="${u.isBlocked ? 'unblock' : 'block'}"><button class="text-xs px-2 py-1 rounded ${u.isBlocked ? 'bg-green-600' : 'bg-red-600'} text-white">${u.isBlocked ? 'Unblock' : 'Block'}</button></form></div></div>`; } }
+      for await (const { value: u, key } of userIter) { 
+          nextUserCursor = key; 
+          if (u.username !== user.username) { 
+              userListHtml += `
+              <div class="flex justify-between items-center border-b border-slate-700 py-2 text-sm">
+                <div>
+                    <span class="text-slate-300 select-all cursor-pointer font-bold" onclick="document.querySelector('input[name=username]').value = '${u.username}'">${u.username}</span>
+                    <span class="text-xs ml-2 ${u.isBlocked ? 'text-red-500' : 'text-green-500'}">${u.isBlocked ? '(Blocked)' : '(Active)'}</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="text-green-400">${u.balance.toLocaleString()} Ks</span>
+                    <form action="/admin/reset-password" method="POST" onsubmit="return confirm('Reset password for ${u.username} to 123456?')" style="margin:0">
+                        <input type="hidden" name="username" value="${u.username}">
+                        <button class="text-xs px-2 py-1 rounded bg-blue-600 text-white" title="Reset Pass to 123456">🔑</button>
+                    </form>
+                    <form action="/admin/block" method="POST" style="margin:0">
+                        <input type="hidden" name="username" value="${u.username}">
+                        <input type="hidden" name="status" value="${u.isBlocked ? 'unblock' : 'block'}">
+                        <button class="text-xs px-2 py-1 rounded ${u.isBlocked ? 'bg-green-600' : 'bg-red-600'} text-white">${u.isBlocked ? 'Unblock' : 'Block'}</button>
+                    </form>
+                </div>
+              </div>`; 
+          } 
+      }
       const encodedUserCursor = nextUserCursor ? encodeCursor(nextUserCursor) : null;
 
       const saleCursor = c.req.query("sale_cursor"); const decodedSaleCursor = saleCursor ? decodeCursor(saleCursor) : undefined;
@@ -288,14 +305,11 @@ app.get("/admin", async (c) => {
           </div>
           <div class="lg:col-span-2 space-y-8">
             <div class="glass p-6 rounded-xl"><h3 class="text-xl font-bold text-white mb-4">➕ Add Product</h3><form action="/admin/add" method="POST" class="space-y-3"><div class="grid grid-cols-2 gap-4"><input name="name" placeholder="Name" required class="bg-slate-800 border border-slate-600 rounded p-2 text-white"><input name="price" type="number" placeholder="Price" required class="bg-slate-800 border border-slate-600 rounded p-2 text-white"></div><input name="desc" placeholder="Description" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><select name="type" id="productType" onchange="toggleProductInputs()" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white mb-2"><option value="manual">Manual Stock</option><option value="api">API Link</option><option value="shared">Shared (Multi-User)</option></select>
-            
             <div id="input-manual"><textarea name="data" placeholder="Codes (One per line)" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-20 mb-2"></textarea></div>
             <div id="input-api" style="display:none"><textarea name="apiData" placeholder="API URL" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-20 mb-2"></textarea></div>
             <div id="input-shared" style="display:none"><input name="sharedData" placeholder="Shared Code (e.g. VPN-123)" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white mb-2"><input name="sharedCapacity" type="number" placeholder="Limit (e.g. 50)" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white mb-2"></div>
-            
             <input name="originalPrice" type="number" placeholder="Original Price (Optional)" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white mb-2">
             <input name="imageUrl" placeholder="Image URL (Optional)" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white">
-            
             <button class="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-2 rounded mt-3">Add Product</button></form></div>
             <div class="glass p-6 rounded-xl overflow-x-auto"><h3 class="text-xl font-bold text-white mb-4">📦 Inventory</h3><table class="w-full text-left text-slate-300 text-sm"><thead class="bg-slate-700 text-white uppercase"><tr><th class="p-3">Name</th><th class="p-3">Price</th><th class="p-3">Stock</th><th class="p-3">Actions</th></tr></thead><tbody>${prodRows}</tbody></table></div>
             ${AdminSalesTable(sales, encodedSaleCursor)}
@@ -307,86 +321,26 @@ app.get("/admin", async (c) => {
 
 app.post("/admin/refund", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); await processRefund(body.username as string, Number(body.date), body.id as string); return c.redirect("/admin"); });
 app.post("/admin/block", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const targetUsername = body.username as string; const shouldBlock = body.status === 'block'; const targetUser = await getUser(targetUsername); if(targetUser) { await updateUser({ ...targetUser, isBlocked: shouldBlock }); } return c.redirect("/admin"); });
+
+// NEW: Admin Reset Password Route
+app.post("/admin/reset-password", async (c) => {
+    const user = await getSessionUser(c);
+    if (!user?.isAdmin) return c.redirect("/");
+    const body = await c.req.parseBody();
+    const targetUsername = body.username as string;
+    const targetUser = await getUser(targetUsername);
+    if(targetUser) {
+        await updateUser({ ...targetUser, password: "123456" }); // Default Reset Password
+    }
+    return c.redirect("/admin");
+});
+
 app.post("/admin/config", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); await setConfig("banner", body.banner as string); await setConfig("telegram", body.telegram as string); await setConfig("payment", body.payment as string); await setConfig("maintenance", body.maintenance === "on"); await setConfig("no_reg", body.noReg === "on"); await setConfig("bonus_active", body.bonusActive === "on"); await setConfig("bonus_amount", Number(body.bonusAmount)); const images = [body.slider1, body.slider2, body.slider3].filter(url => url && url.toString().trim() !== ""); await setConfig("slider_images", images); return c.redirect("/admin"); });
 app.post("/admin/voucher", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const code = (body.code as string).trim().toUpperCase(); const amount = Number(body.amount); await createVoucher(code, amount); return c.redirect("/admin"); });
 app.post("/admin/topup", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const targetUsername = (body.username as string).trim(); const amount = Number(body.amount); const targetUser = await getUser(targetUsername); if (!targetUser) return c.html(Layout("Admin Error", "User Not Found", user)); await kv.set(["users", targetUsername], { ...targetUser, balance: targetUser.balance + amount }); await addHistory(targetUsername, "topup", "Admin Topup", amount, `Added by Admin`); return c.redirect("/admin"); });
-app.post("/admin/add", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); 
-    // Handle types
-    let stock: string[] = []; let apiUrl: string | undefined = undefined; let sharedData: string | undefined = undefined; let sharedCapacity: number | undefined = undefined;
-    if (body.type === 'manual') { stock = (body.data as string).split("\n").map(s => s.trim()).filter(Boolean); } 
-    else if (body.type === 'api') { apiUrl = (body.apiData as string).trim(); } 
-    else if (body.type === 'shared') { sharedData = (body.sharedData as string).trim(); sharedCapacity = Number(body.sharedCapacity); }
-
-    const p: Product = { id: crypto.randomUUID(), name: body.name as string, description: body.desc as string, price: Number(body.price), type: body.type as any, stock, apiUrl, sharedData, sharedCapacity, sharedSold: 0, imageUrl: body.imageUrl as string, originalPrice: body.originalPrice ? Number(body.originalPrice) : undefined }; 
-    await kv.set(["products", p.id], p); return c.redirect("/admin"); 
-});
-
+app.post("/admin/add", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const p: Product = { id: crypto.randomUUID(), name: body.name as string, description: body.desc as string, price: Number(body.price), type: body.type as any, stock: body.type === 'manual' ? (body.data as string).split("\n").map(s=>s.trim()).filter(Boolean) : [], apiUrl: body.type === 'api' ? (body.data as string).trim() : undefined, imageUrl: body.imageUrl as string, originalPrice: body.originalPrice ? Number(body.originalPrice) : undefined, sharedData: body.type === 'shared' ? (body.sharedData as string).trim() : undefined, sharedCapacity: body.type === 'shared' ? Number(body.sharedCapacity) : undefined, sharedSold: 0 }; await kv.set(["products", p.id], p); return c.redirect("/admin"); });
 app.post("/admin/delete", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const { id } = await c.req.parseBody(); await kv.delete(["products", id as string]); return c.redirect("/admin"); });
-
-// REWRITTEN EDIT ROUTE TO SUPPORT ALL TYPES
-app.get("/admin/edit", async (c) => { 
-    const user = await getSessionUser(c); 
-    if (!user?.isAdmin) return c.redirect("/"); 
-    const id = c.req.query("id"); 
-    const p = await getProduct(id!); 
-    if (!p) return c.redirect("/admin"); 
-
-    return c.html(Layout("Edit", `
-        <div class="max-w-lg mx-auto glass p-8 rounded-xl">
-            <h2 class="text-2xl font-bold text-white mb-6">Edit Product</h2>
-            <form action="/admin/update" method="POST" class="space-y-4">
-                <input type="hidden" name="id" value="${p.id}">
-                <div><label class="text-slate-400 block mb-1">Name</label><input name="name" value="${p.name}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div>
-                <div><label class="text-slate-400 block mb-1">Price</label><input name="price" type="number" value="${p.price}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div>
-                <div><label class="text-slate-400 block mb-1">Original Price</label><input name="originalPrice" type="number" value="${p.originalPrice || ''}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div>
-                <div><label class="text-slate-400 block mb-1">Description</label><input name="desc" value="${p.description}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div>
-                <div><label class="text-slate-400 block mb-1">Image URL</label><input name="imageUrl" value="${p.imageUrl || ''}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div>
-                
-                <div>
-                    <label class="text-slate-400 block mb-1">Data (${p.type.toUpperCase()})</label>
-                    ${p.type === 'manual' ? `<textarea name="data" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-32">${p.stock.join("\n")}</textarea>` : ''}
-                    ${p.type === 'api' ? `<textarea name="data" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-20">${p.apiUrl}</textarea>` : ''}
-                    ${p.type === 'shared' ? `
-                        <input name="data" value="${p.sharedData}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white mb-2">
-                        <label class="text-slate-400 block mb-1">Capacity Limit (Sold: ${p.sharedSold})</label>
-                        <input name="sharedCapacity" type="number" value="${p.sharedCapacity}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white">
-                    ` : ''}
-                </div>
-
-                <div class="flex gap-4 pt-4">
-                    <button class="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 rounded">Update</button>
-                    <a href="/admin" class="flex-1 bg-slate-700 text-center py-2 rounded text-white">Cancel</a>
-                </div>
-            </form>
-        </div>
-    `, user)); 
-});
-
-app.post("/admin/update", async (c) => { 
-    const user = await getSessionUser(c); 
-    if (!user?.isAdmin) return c.redirect("/"); 
-    const body = await c.req.parseBody(); 
-    const p = await getProduct(body.id as string); 
-    if (p) { 
-        let updated = { 
-            ...p, 
-            name: body.name as string, 
-            price: Number(body.price), 
-            description: body.desc as string, 
-            imageUrl: body.imageUrl as string,
-            originalPrice: body.originalPrice ? Number(body.originalPrice) : undefined
-        };
-        
-        if(p.type === 'manual') updated.stock = (body.data as string).split("\n").map(s=>s.trim()).filter(Boolean);
-        else if(p.type === 'api') updated.apiUrl = (body.data as string).trim();
-        else if(p.type === 'shared') {
-            updated.sharedData = (body.data as string).trim();
-            updated.sharedCapacity = Number(body.sharedCapacity);
-        }
-        
-        await kv.set(["products", p.id], updated); 
-    } 
-    return c.redirect("/admin"); 
-});
+app.get("/admin/edit", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const id = c.req.query("id"); const p = await getProduct(id!); if (!p) return c.redirect("/admin"); return c.html(Layout("Edit", `<div class="max-w-lg mx-auto glass p-8 rounded-xl"><h2 class="text-2xl font-bold text-white mb-6">Edit Product</h2><form action="/admin/update" method="POST" class="space-y-4"><input type="hidden" name="id" value="${p.id}"><div><label class="text-slate-400 block mb-1">Name</label><input name="name" value="${p.name}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div><div><label class="text-slate-400 block mb-1">Price</label><input name="price" type="number" value="${p.price}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div><div><label class="text-slate-400 block mb-1">Description</label><input name="desc" value="${p.description}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div><div><label class="text-slate-400 block mb-1">Image URL</label><input name="imageUrl" value="${p.imageUrl || ''}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div><div><label class="text-slate-400 block mb-1">Data</label><textarea name="data" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-32">${p.type === 'manual' ? p.stock.join("\n") : p.type === 'api' ? p.apiUrl : p.sharedData}</textarea><small class="text-slate-500">For Shared: Edit code here.</small></div><div class="flex gap-4 pt-4"><button class="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 rounded">Update</button><a href="/admin" class="flex-1 bg-slate-700 text-center py-2 rounded text-white">Cancel</a></div></form></div>`, user)); });
+app.post("/admin/update", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const p = await getProduct(body.id as string); if (p) { const updated: Product = { ...p, name: body.name as string, price: Number(body.price), description: body.desc as string, stock: p.type === 'manual' ? (body.data as string).split("\n").map(s=>s.trim()).filter(Boolean) : [], apiUrl: p.type === 'api' ? (body.data as string).trim() : undefined, sharedData: p.type === 'shared' ? (body.data as string).trim() : undefined, imageUrl: body.imageUrl as string, originalPrice: body.originalPrice ? Number(body.originalPrice) : undefined }; await kv.set(["products", p.id], updated); } return c.redirect("/admin"); });
 
 Deno.serve(app.fetch);
