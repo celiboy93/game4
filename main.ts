@@ -1,6 +1,6 @@
 import { Hono } from "jsr:@hono/hono";
 import { getCookie, setCookie, deleteCookie } from "jsr:@hono/hono/cookie";
-import { kv, User, Product, Transaction, getUser, getProduct, addHistory, isKeySold, markKeyAsSold, getBanner, setBanner } from "./db.ts";
+import { kv, User, Product, Transaction, getUser, getProduct, addHistory, isKeySold, markKeyAsSold, getConfig, setConfig } from "./db.ts";
 import { Layout, AuthForm, ProductCard, HistoryTable } from "./ui.ts";
 
 const app = new Hono();
@@ -13,15 +13,13 @@ async function getApiAvailableStock(p: Product): Promise<number | string> {
         const text = await res.text();
         const json = JSON.parse(text);
         const items = Array.isArray(json) ? json : [json];
-        
         let count = 0;
         for (const item of items) {
             const expDate = new Date(item.expiration_date);
             const now = new Date();
             now.setHours(0,0,0,0);
             if (expDate < now) continue;
-            if (item.android_id_1 && item.android_id_1.trim() !== "" && 
-                item.android_id_2 && item.android_id_2.trim() !== "") continue;
+            if (item.android_id_1 && item.android_id_1.trim() !== "" && item.android_id_2 && item.android_id_2.trim() !== "") continue;
             if (await isKeySold(item.key)) continue; 
             count++;
         }
@@ -39,18 +37,13 @@ async function getSessionUser(c: any) {
 
 // --- Routes ---
 
-// 1. Home / Shop (Includes Search Bar & Banner)
 app.get("/", async (c) => {
   const user = await getSessionUser(c);
   if (!user) return c.redirect("/login");
-
   const iter = kv.list<Product>({ prefix: ["products"] });
   let productsHtml = "";
-  for await (const entry of iter) {
-      productsHtml += ProductCard(entry.value);
-  }
-
-  const banner = await getBanner();
+  for await (const entry of iter) { productsHtml += ProductCard(entry.value); }
+  const config = await getConfig();
 
   return c.html(Layout("Shop", `
     <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
@@ -60,11 +53,41 @@ app.get("/", async (c) => {
             <div class="absolute left-3 top-2.5 text-slate-400">🔍</div>
         </div>
     </div>
-
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
       ${productsHtml || '<p class="text-slate-500 col-span-full text-center">No products available yet.</p>'}
     </div>
-  `, user, banner));
+  `, user, config.banner));
+});
+
+// New: Deposit Page
+app.get("/deposit", async (c) => {
+    const user = await getSessionUser(c);
+    if (!user) return c.redirect("/login");
+    const config = await getConfig();
+
+    return c.html(Layout("Deposit", `
+        <div class="max-w-xl mx-auto">
+            <div class="glass rounded-2xl p-8 border border-blue-500/30">
+                <h1 class="text-3xl font-bold text-white mb-2 text-center">💰 Top Up Balance</h1>
+                <p class="text-slate-400 text-center mb-8">ငွေဖြည့်ရန် အောက်ပါအကောင့်များသို့ ငွေလွှဲပါ။</p>
+                
+                <div class="bg-slate-900/50 rounded-xl p-6 mb-8 border border-slate-700">
+                    <pre class="font-mono text-slate-200 whitespace-pre-wrap leading-loose text-center">${config.payment}</pre>
+                </div>
+
+                <div class="text-center">
+                    <p class="text-slate-400 text-sm mb-4">ငွေလွှဲပြီးပါက Admin ထံ Screenshot ပေးပို့ပါ။</p>
+                    <a href="https://t.me/${config.telegram}" target="_blank" class="inline-flex items-center gap-2 bg-blue-500 hover:bg-blue-400 text-white font-bold py-3 px-8 rounded-full transition shadow-lg shadow-blue-500/30">
+                        <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+                        Send Screenshot
+                    </a>
+                </div>
+            </div>
+            <div class="mt-6 text-center">
+                <a href="/" class="text-slate-500 hover:text-white">Cancel</a>
+            </div>
+        </div>
+    `, user));
 });
 
 app.get("/check-stock", async (c) => {
@@ -86,7 +109,6 @@ app.get("/history", async (c) => {
   for await (const entry of iter) { transactions.push(entry.value); nextCursor = entry.key; }
   if (transactions.length < 10) nextCursor = null; 
   const encodedCursor = nextCursor ? btoa(JSON.stringify(nextCursor)) : null;
-
   return c.html(Layout("History", `
     <div class="max-w-4xl mx-auto">
         <h1 class="text-3xl font-bold text-white mb-6">Transaction History</h1>
@@ -103,7 +125,6 @@ app.post("/login", async (c) => {
   if (user && user.password === password) { setCookie(c, "session_user", user.username); return c.redirect("/"); }
   return c.html(Layout("Login", AuthForm("Login", "Invalid username or password")));
 });
-
 app.get("/register", (c) => c.html(Layout("Register", AuthForm("Register"))));
 app.post("/register", async (c) => {
   const { username, password } = await c.req.parseBody();
@@ -122,25 +143,16 @@ app.post("/buy", async (c) => {
   if (!user) return c.redirect("/login");
   const { id } = await c.req.parseBody();
   const product = await getProduct(id as string);
-
   if (!product) return c.redirect("/");
   if (user.balance < product.price) {
-    return c.html(Layout("Error", `<div class="max-w-md mx-auto glass p-8 rounded-xl text-center"><h2 class="text-red-400 text-xl font-bold mb-4">Insufficient Balance</h2><a href="/" class="text-blue-400">Back</a></div>`, user));
+    return c.html(Layout("Error", `<div class="max-w-md mx-auto glass p-8 rounded-xl text-center"><h2 class="text-red-400 text-xl font-bold mb-4">Insufficient Balance</h2><a href="/deposit" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-500">Top Up Now</a></div>`, user));
   }
-
   let finalDisplayCode = "";
   let soldKeyIdentifier = null; 
-  
   if (product.type === "manual") {
     if (!product.stock.length) return c.html(Layout("Error", "Out of Stock", user));
     finalDisplayCode = product.stock[0];
-    
-    const res = await kv.atomic()
-      .check(await kv.get(["products", product.id]))
-      .check(await kv.get(["users", user.username]))
-      .set(["products", product.id], { ...product, stock: product.stock.slice(1) })
-      .set(["users", user.username], { ...user, balance: user.balance - product.price })
-      .commit();
+    const res = await kv.atomic().check(await kv.get(["products", product.id])).check(await kv.get(["users", user.username])).set(["products", product.id], { ...product, stock: product.stock.slice(1) }).set(["users", user.username], { ...user, balance: user.balance - product.price }).commit();
     if(!res.ok) return c.html(Layout("Error", "Transaction Failed. Try Again.", user));
   } else {
     try {
@@ -151,7 +163,6 @@ app.post("/buy", async (c) => {
         json = JSON.parse(text);
         const items = Array.isArray(json) ? json : [json];
         let validItem = null;
-        
         for (const item of items) {
             const expDate = new Date(item.expiration_date);
             const now = new Date();
@@ -162,44 +173,20 @@ app.post("/buy", async (c) => {
             validItem = item;
             break;
         }
-
-        if (!validItem) {
-            return c.html(Layout("Error", `<div class="max-w-md mx-auto glass p-8 rounded-xl text-center"><h2 class="text-red-400 text-xl font-bold mb-4">Stock Unavailable</h2><p class="text-slate-300">All valid keys have been sold or are full.</p><a href="/" class="text-blue-400 mt-4 inline-block">Back</a></div>`, user));
-        }
-        
+        if (!validItem) return c.html(Layout("Error", `<div class="max-w-md mx-auto glass p-8 rounded-xl text-center"><h2 class="text-red-400 text-xl font-bold mb-4">Stock Unavailable</h2><p class="text-slate-300">All valid keys have been sold or are full.</p><a href="/" class="text-blue-400 mt-4 inline-block">Back</a></div>`, user));
         finalDisplayCode = `Key: ${validItem.key}\nExpires: ${validItem.expiration_date}`;
         soldKeyIdentifier = validItem.key;
-      } catch (e) {
-        finalDisplayCode = text;
-      }
-      const resKv = await kv.atomic()
-        .check(await kv.get(["users", user.username]))
-        .set(["users", user.username], { ...user, balance: user.balance - product.price })
-        .commit();
+      } catch (e) { finalDisplayCode = text; }
+      const resKv = await kv.atomic().check(await kv.get(["users", user.username])).set(["users", user.username], { ...user, balance: user.balance - product.price }).commit();
       if(!resKv.ok) throw new Error();
       if (soldKeyIdentifier) await markKeyAsSold(soldKeyIdentifier, user.username);
-    } catch {
-      return c.html(Layout("Error", "API Error", user));
-    }
+    } catch { return c.html(Layout("Error", "API Error", user)); }
   }
   await addHistory(user.username, "purchase", product.name, product.price, finalDisplayCode);
-
   return c.html(Layout("Success", `
     <div class="max-w-lg mx-auto glass rounded-2xl overflow-hidden border border-green-500/30 shadow-2xl shadow-green-500/10">
-      <div class="bg-green-600/20 p-6 text-center border-b border-green-500/30">
-        <div class="text-5xl mb-4">🎉</div>
-        <h2 class="text-2xl font-bold text-green-400 mb-1">Purchase Successful!</h2>
-      </div>
-      <div class="p-8 bg-[#0b1120]">
-        <p class="text-slate-400 text-sm mb-3 uppercase tracking-wider font-semibold">Your Item:</p>
-        <div class="code-box bg-slate-900 border-2 border-dashed border-slate-600 rounded-xl p-4 relative group">
-            <pre class="font-mono text-green-400 whitespace-pre-wrap break-all text-lg leading-relaxed shadow-inner">${finalDisplayCode}</pre>
-        </div>
-        <div class="mt-6 flex gap-3">
-            <button id="copyBtn" onclick="copyToClipboard(\`${finalDisplayCode.replace(/`/g, "\\`")}\`)" class="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20">Copy Code</button>
-            <a href="/" class="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 rounded-xl text-center transition border border-slate-600">Return</a>
-        </div>
-      </div>
+      <div class="bg-green-600/20 p-6 text-center border-b border-green-500/30"><div class="text-5xl mb-4">🎉</div><h2 class="text-2xl font-bold text-green-400 mb-1">Purchase Successful!</h2></div>
+      <div class="p-8 bg-[#0b1120]"><p class="text-slate-400 text-sm mb-3 uppercase tracking-wider font-semibold">Your Item:</p><div class="code-box bg-slate-900 border-2 border-dashed border-slate-600 rounded-xl p-4 relative group"><pre class="font-mono text-green-400 whitespace-pre-wrap break-all text-lg leading-relaxed shadow-inner">${finalDisplayCode}</pre></div><div class="mt-6 flex gap-3"><button id="copyBtn" onclick="copyToClipboard(\`${finalDisplayCode.replace(/`/g, "\\`")}\`)" class="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20">Copy Code</button><a href="/" class="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 rounded-xl text-center transition border border-slate-600">Return</a></div></div>
     </div>
   `, { ...user, balance: user.balance - product.price }));
 });
@@ -218,16 +205,28 @@ app.get("/admin", async (c) => {
   let userListHtml = "";
   for await (const { value: u } of userIter) { if (u.username !== user.username) { userListHtml += `<div class="flex justify-between items-center border-b border-slate-700 py-2 text-sm"><span class="text-slate-300 select-all cursor-pointer" onclick="document.querySelector('input[name=username]').value = '${u.username}'">${u.username}</span><span class="text-green-400">${u.balance.toLocaleString()} Ks</span></div>`; } }
 
-  const banner = await getBanner();
+  const config = await getConfig();
 
   return c.html(Layout("Admin", `
     <div class="grid lg:grid-cols-3 gap-8">
       <div class="lg:col-span-1 space-y-6">
-        <div class="glass p-6 rounded-xl border-l-4 border-yellow-500">
-            <h3 class="text-xl font-bold text-white mb-4">📢 Announcement</h3>
-            <form action="/admin/banner" method="POST">
-                <textarea name="text" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-20 mb-2">${banner}</textarea>
-                <button class="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-2 rounded font-bold w-full">Update Banner</button>
+        
+        <div class="glass p-6 rounded-xl border-l-4 border-yellow-500 space-y-4">
+            <h3 class="text-xl font-bold text-white">⚙️ Configuration</h3>
+            <form action="/admin/config" method="POST" class="space-y-3">
+                <div>
+                    <label class="text-xs text-slate-400 uppercase">Announcement (Marquee)</label>
+                    <input name="banner" value="${config.banner}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm">
+                </div>
+                <div>
+                    <label class="text-xs text-slate-400 uppercase">Telegram Username (No @)</label>
+                    <input name="telegram" value="${config.telegram}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm">
+                </div>
+                <div>
+                    <label class="text-xs text-slate-400 uppercase">Payment Details</label>
+                    <textarea name="payment" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm h-24">${config.payment}</textarea>
+                </div>
+                <button class="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-2 rounded font-bold w-full">Update Settings</button>
             </form>
         </div>
 
@@ -242,12 +241,14 @@ app.get("/admin", async (c) => {
   `, user));
 });
 
-// New: Update Banner
-app.post("/admin/banner", async (c) => {
+// New: Unified Config Update
+app.post("/admin/config", async (c) => {
     const user = await getSessionUser(c);
     if (!user?.isAdmin) return c.redirect("/");
     const body = await c.req.parseBody();
-    await setBanner(body.text as string);
+    await setConfig("banner", body.banner as string);
+    await setConfig("telegram", body.telegram as string);
+    await setConfig("payment", body.payment as string);
     return c.redirect("/admin");
 });
 
