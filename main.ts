@@ -40,6 +40,10 @@ app.get("/", async (c) => {
   const config = await getConfig();
   if (config.maintenance && (!user || !user.isAdmin)) return c.html(MaintenancePage());
   if (!user) return c.redirect("/login");
+  
+  // If blocked, force logout
+  if(user.isBlocked) return c.redirect("/logout");
+
   const iter = kv.list<Product>({ prefix: ["products"] });
   let productsHtml = "";
   for await (const entry of iter) { productsHtml += ProductCard(entry.value); }
@@ -85,31 +89,22 @@ app.post("/redeem", async (c) => {
     if (!user) return c.redirect("/login");
     const body = await c.req.parseBody();
     const code = (body.code as string).trim().toUpperCase();
-
     const voucher = await getVoucher(code);
-    if (!voucher || voucher.isUsed) {
-        return c.html(ProfilePage(user, { type: 'error', text: 'Invalid or Used Voucher' }));
-    }
-
-    // Redeem Logic
-    const res = await kv.atomic()
-        .check(await kv.get(["vouchers", code]))
-        .check(await kv.get(["users", user.username]))
-        .set(["vouchers", code], { ...voucher, isUsed: true, usedBy: user.username })
-        .set(["users", user.username], { ...user, balance: user.balance + voucher.amount })
-        .commit();
-
+    if (!voucher || voucher.isUsed) { return c.html(ProfilePage(user, { type: 'error', text: 'Invalid or Used Voucher' })); }
+    const res = await kv.atomic().check(await kv.get(["vouchers", code])).check(await kv.get(["users", user.username])).set(["vouchers", code], { ...voucher, isUsed: true, usedBy: user.username }).set(["users", user.username], { ...user, balance: user.balance + voucher.amount }).commit();
     if (!res.ok) return c.html(ProfilePage(user, { type: 'error', text: 'Redemption Failed' }));
-
     await addHistory(user.username, "voucher", "Voucher Redeemed", voucher.amount, `Code: ${code}`);
     return c.html(ProfilePage({ ...user, balance: user.balance + voucher.amount }, { type: 'success', text: `Successfully added ${voucher.amount} Ks!` }));
 });
-
 
 // --- Buy Route ---
 app.post("/buy", async (c) => {
   const user = await getSessionUser(c);
   if (!user) return c.json({ success: false, message: "Unauthorized" }, 401);
+  
+  // Block Check
+  if (user.isBlocked) return c.json({ success: false, message: "Your account is blocked." });
+
   const config = await getConfig();
   if (config.maintenance && !user.isAdmin) return c.json({ success: false, message: "Maintenance Mode" });
   const body = await c.req.json(); 
@@ -175,7 +170,16 @@ app.get("/history", async (c) => {
 });
 
 app.get("/login", (c) => c.html(Layout("Login", AuthForm("Login"))));
-app.post("/login", async (c) => { const { username, password } = await c.req.parseBody(); const user = await getUser(username as string); if (user && user.password === password) { setCookie(c, "session_user", user.username); return c.redirect("/"); } return c.html(Layout("Login", AuthForm("Login", "Invalid username or password"))); });
+app.post("/login", async (c) => {
+  const { username, password } = await c.req.parseBody();
+  const user = await getUser(username as string);
+  if (user && user.password === password) { 
+      if(user.isBlocked) return c.html(Layout("Login", AuthForm("Login", "Your account has been blocked.")));
+      setCookie(c, "session_user", user.username); 
+      return c.redirect("/"); 
+  } 
+  return c.html(Layout("Login", AuthForm("Login", "Invalid username or password"))); 
+});
 app.get("/register", async (c) => { const config = await getConfig(); if (config.noReg) return c.html(Layout("Registration Closed", `<div class="text-center py-10 text-red-400 text-xl font-bold">⚠️ New registrations are currently disabled.</div>`)); return c.html(Layout("Register", AuthForm("Register"))); });
 app.post("/register", async (c) => { const config = await getConfig(); if (config.noReg) return c.html(Layout("Registration Closed", `<div class="text-center py-10 text-red-400 text-xl font-bold">⚠️ New registrations are currently disabled.</div>`)); const { username, password } = await c.req.parseBody(); const existing = await getUser(username as string); if (existing) return c.html(Layout("Register", AuthForm("Register", "Username already taken"))); const list = kv.list({ prefix: ["users"] }, { limit: 1 }); const isFirst = (await list.next()).done; await kv.set(["users", username as string], { username, password, balance: 0, isAdmin: isFirst } as User); setCookie(c, "session_user", username as string); return c.redirect("/"); });
 app.get("/logout", (c) => { deleteCookie(c, "session_user"); return c.redirect("/login"); });
@@ -192,7 +196,25 @@ app.get("/admin", async (c) => {
   }
   const userIter = kv.list<User>({ prefix: ["users"] });
   let userListHtml = "";
-  for await (const { value: u } of userIter) { if (u.username !== user.username) { userListHtml += `<div class="flex justify-between items-center border-b border-slate-700 py-2 text-sm"><span class="text-slate-300 select-all cursor-pointer" onclick="document.querySelector('input[name=username]').value = '${u.username}'">${u.username}</span><span class="text-green-400">${u.balance.toLocaleString()} Ks</span></div>`; } }
+  for await (const { value: u } of userIter) { 
+      if (u.username !== user.username) { 
+          userListHtml += `
+            <div class="flex justify-between items-center border-b border-slate-700 py-2 text-sm">
+                <div>
+                    <span class="text-slate-300 select-all cursor-pointer font-bold" onclick="document.querySelector('input[name=username]').value = '${u.username}'">${u.username}</span>
+                    <span class="text-xs ml-2 ${u.isBlocked ? 'text-red-500' : 'text-green-500'}">${u.isBlocked ? '(Blocked)' : '(Active)'}</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="text-green-400">${u.balance.toLocaleString()} Ks</span>
+                    <form action="/admin/block" method="POST" style="margin:0">
+                        <input type="hidden" name="username" value="${u.username}">
+                        <input type="hidden" name="status" value="${u.isBlocked ? 'unblock' : 'block'}">
+                        <button class="text-xs px-2 py-1 rounded ${u.isBlocked ? 'bg-green-600' : 'bg-red-600'} text-white">${u.isBlocked ? 'Unblock' : 'Block'}</button>
+                    </form>
+                </div>
+            </div>`; 
+      } 
+  }
   const config = await getConfig();
 
   return c.html(Layout("Admin", `
@@ -211,18 +233,7 @@ app.get("/admin", async (c) => {
                 <button class="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-2 rounded font-bold w-full">Update Settings</button>
             </form>
         </div>
-        
-        <div class="glass p-6 rounded-xl border-l-4 border-purple-500">
-            <h3 class="text-xl font-bold text-white mb-4">🎟️ Create Voucher</h3>
-            <form action="/admin/voucher" method="POST" class="space-y-3">
-                <input name="code" placeholder="Voucher Code (e.g. HAPPY)" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white uppercase">
-                <div class="flex gap-2">
-                    <input name="amount" type="number" placeholder="Amount" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white">
-                    <button class="bg-purple-600 px-4 rounded text-white font-bold">Create</button>
-                </div>
-            </form>
-        </div>
-
+        <div class="glass p-6 rounded-xl border-l-4 border-purple-500"><h3 class="text-xl font-bold text-white mb-4">🎟️ Create Voucher</h3><form action="/admin/voucher" method="POST" class="space-y-3"><input name="code" placeholder="Voucher Code (e.g. HAPPY)" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white uppercase"><div class="flex gap-2"><input name="amount" type="number" placeholder="Amount" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><button class="bg-purple-600 px-4 rounded text-white font-bold">Create</button></div></form></div>
         <div class="glass p-6 rounded-xl"><h3 class="text-xl font-bold text-white mb-4">💰 User Top Up</h3><form action="/admin/topup" method="POST" class="space-y-3"><input name="username" placeholder="Username" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><div class="flex gap-2"><input name="amount" type="number" placeholder="Amount" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><button class="bg-blue-600 px-4 rounded text-white font-bold">Add</button></div></form></div>
         <div class="glass p-6 rounded-xl"><h3 class="text-lg font-bold text-white mb-2">👥 Users</h3><div class="max-h-64 overflow-y-auto pr-2">${userListHtml}</div></div>
       </div>
@@ -232,6 +243,20 @@ app.get("/admin", async (c) => {
       </div>
     </div>
   `, user));
+});
+
+app.post("/admin/block", async (c) => {
+    const user = await getSessionUser(c);
+    if (!user?.isAdmin) return c.redirect("/");
+    const body = await c.req.parseBody();
+    const targetUsername = body.username as string;
+    const shouldBlock = body.status === 'block';
+    
+    const targetUser = await getUser(targetUsername);
+    if(targetUser) {
+        await updateUser({ ...targetUser, isBlocked: shouldBlock });
+    }
+    return c.redirect("/admin");
 });
 
 app.post("/admin/config", async (c) => {
@@ -246,16 +271,7 @@ app.post("/admin/config", async (c) => {
     return c.redirect("/admin");
 });
 
-app.post("/admin/voucher", async (c) => {
-    const user = await getSessionUser(c);
-    if (!user?.isAdmin) return c.redirect("/");
-    const body = await c.req.parseBody();
-    const code = (body.code as string).trim().toUpperCase();
-    const amount = Number(body.amount);
-    await createVoucher(code, amount);
-    return c.redirect("/admin");
-});
-
+app.post("/admin/voucher", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const code = (body.code as string).trim().toUpperCase(); const amount = Number(body.amount); await createVoucher(code, amount); return c.redirect("/admin"); });
 app.post("/admin/topup", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const targetUsername = (body.username as string).trim(); const amount = Number(body.amount); const targetUser = await getUser(targetUsername); if (!targetUser) return c.html(Layout("Admin Error", "User Not Found", user)); await kv.set(["users", targetUsername], { ...targetUser, balance: targetUser.balance + amount }); await addHistory(targetUsername, "topup", "Admin Topup", amount, `Added by Admin`); return c.redirect("/admin"); });
 app.post("/admin/add", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const p: Product = { id: crypto.randomUUID(), name: body.name as string, description: body.desc as string, price: Number(body.price), type: body.type as any, stock: body.type === 'manual' ? (body.data as string).split("\n").map(s=>s.trim()).filter(Boolean) : [], apiUrl: body.type === 'api' ? (body.data as string).trim() : undefined }; await kv.set(["products", p.id], p); return c.redirect("/admin"); });
 app.post("/admin/delete", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const { id } = await c.req.parseBody(); await kv.delete(["products", id as string]); return c.redirect("/admin"); });
