@@ -12,17 +12,44 @@ export const Layout = (title: string, content: string, user?: User) => `
     function copyToClipboard(text) {
         navigator.clipboard.writeText(text).then(() => {
             const btn = document.getElementById('copyBtn');
-            const originalText = btn.innerHTML;
-            btn.innerHTML = '✅ Copied!';
-            btn.classList.remove('bg-blue-600');
-            btn.classList.add('bg-green-600');
-            setTimeout(() => {
-                btn.innerHTML = originalText;
-                btn.classList.remove('bg-green-600');
-                btn.classList.add('bg-blue-600');
-            }, 2000);
+            if(btn) {
+                const originalText = btn.innerHTML;
+                btn.innerHTML = '✅ Copied!';
+                btn.classList.remove('bg-blue-600');
+                btn.classList.add('bg-green-600');
+                setTimeout(() => {
+                    btn.innerHTML = originalText;
+                    btn.classList.remove('bg-green-600');
+                    btn.classList.add('bg-blue-600');
+                }, 2000);
+            }
         });
     }
+
+    // New: Lazy Load Stock
+    document.addEventListener("DOMContentLoaded", () => {
+        const apiProducts = document.querySelectorAll(".api-stock-loader");
+        apiProducts.forEach(async (el) => {
+            const id = el.dataset.id;
+            try {
+                const res = await fetch("/check-stock?id=" + id);
+                const text = await res.text();
+                el.innerText = text;
+                // If stock is 0, disable button
+                if(text.includes("0") || text === "?") {
+                   const btn = document.getElementById("btn-" + id);
+                   if(btn) {
+                       btn.disabled = true;
+                       btn.classList.remove("bg-blue-600", "hover:bg-blue-500");
+                       btn.classList.add("bg-slate-700", "cursor-not-allowed");
+                       btn.innerText = "🚫 Out of Stock";
+                   }
+                }
+            } catch {
+                el.innerText = "Err";
+            }
+        });
+    });
   </script>
   <style>
     body { font-family: sans-serif; background-color: #0f172a; color: #e2e8f0; }
@@ -73,17 +100,24 @@ export const AuthForm = (type: "Login" | "Register", error?: string) => `
 </div>
 `;
 
-// Updated Product Card to accept dynamic Stock Count
-export const ProductCard = (p: Product, stockCount: number | string) => {
-  const hasStock = stockCount !== 0 && stockCount !== "0";
-  const stockDisplay = p.type === 'api' ? `API Stock: ${stockCount}` : `Stock: ${stockCount}`;
+export const ProductCard = (p: Product) => {
+  // For manual, we know stock immediately. For API, we load lazily.
+  const isManual = p.type === 'manual';
+  const manualStock = p.stock ? p.stock.length : 0;
   
+  const stockDisplay = isManual 
+      ? `Stock: ${manualStock}` 
+      : `API Stock: <span class="api-stock-loader animate-pulse" data-id="${p.id}">...</span>`;
+  
+  // Initially disable only if manual stock is 0. API button will be disabled by JS later if 0.
+  const isDisabled = isManual && manualStock === 0;
+
   return `
   <div class="glass rounded-xl overflow-hidden hover:shadow-2xl hover:shadow-blue-500/10 transition transform hover:-translate-y-1 duration-300 flex flex-col h-full">
     <div class="p-5 flex-grow">
       <div class="flex justify-between items-start mb-2">
         <h3 class="text-xl font-bold text-white truncate">${p.name}</h3>
-        <span class="text-xs px-2 py-1 rounded ${hasStock ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">
+        <span class="text-xs px-2 py-1 rounded ${!isDisabled ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">
           ${stockDisplay}
         </span>
       </div>
@@ -93,8 +127,8 @@ export const ProductCard = (p: Product, stockCount: number | string) => {
     <div class="p-5 pt-0 mt-auto">
       <form action="/buy" method="POST">
         <input type="hidden" name="id" value="${p.id}">
-        <button ${!hasStock ? 'disabled' : ''} class="w-full ${hasStock ? 'bg-blue-600 hover:bg-blue-500' : 'bg-slate-700 cursor-not-allowed'} text-white font-bold py-2 rounded-lg transition flex justify-center items-center gap-2">
-          ${hasStock ? '⚡ Buy Now' : '🚫 Out of Stock'}
+        <button id="btn-${p.id}" ${isDisabled ? 'disabled' : ''} class="w-full ${!isDisabled ? 'bg-blue-600 hover:bg-blue-500' : 'bg-slate-700 cursor-not-allowed'} text-white font-bold py-2 rounded-lg transition flex justify-center items-center gap-2">
+          ${isDisabled ? '🚫 Out of Stock' : '⚡ Buy Now'}
         </button>
       </form>
     </div>
