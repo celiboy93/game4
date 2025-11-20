@@ -44,7 +44,6 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
     }
 
     document.addEventListener("DOMContentLoaded", () => {
-        // Lazy Stock
         const apiProducts = document.querySelectorAll(".api-stock-loader");
         apiProducts.forEach(async (el) => {
             const id = el.dataset.id;
@@ -56,7 +55,6 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
             } catch { el.innerText = "?"; }
         });
 
-        // Page Loader
         const loader = document.getElementById('page-loader');
         document.querySelectorAll('a').forEach(link => {
             link.addEventListener('click', (e) => {
@@ -193,7 +191,7 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
   </main>
 
   <div id="confirmModal" class="hidden fixed inset-0 z-50 flex items-center justify-center modal-backdrop px-4 modal-content">
-    <div class="bg-[#1e293b] border border-slate-600 rounded-2xl p-6 max-w-sm w-full shadow-2xl transform transition-all scale-100">
+    <div class="bg-[#1e293b] border border-slate-600 rounded-2xl p-6 max-w-sm w-full shadow-2xl transform transition-all scale-100 relative">
         <h3 class="text-xl font-bold text-white mb-2">Confirm Purchase?</h3>
         <p class="text-slate-400 mb-4">Are you sure you want to buy <br><span id="confirmName" class="text-blue-400 font-bold"></span> for <span id="confirmPrice" class="text-green-400 font-bold"></span>?</p>
         <div class="flex gap-3">
@@ -204,7 +202,8 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
   </div>
 
   <div id="successModal" class="hidden fixed inset-0 z-50 flex items-center justify-center modal-backdrop px-4 modal-content">
-    <div class="bg-[#1e293b] border border-green-500/30 rounded-2xl p-0 max-w-md w-full shadow-2xl overflow-hidden">
+    <div class="bg-[#1e293b] border border-green-500/30 rounded-2xl p-0 max-w-md w-full shadow-2xl overflow-hidden relative">
+        <button onclick="closeSuccessModal()" class="absolute top-3 right-3 text-slate-400 hover:text-white text-xl">&times;</button>
         <div class="bg-green-600/20 p-6 text-center border-b border-green-500/20">
             <div class="text-5xl mb-2">🎉</div>
             <h2 class="text-2xl font-bold text-green-400">Successful!</h2>
@@ -223,13 +222,15 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
   </div>
 
   <div id="errorModal" class="hidden fixed inset-0 z-50 flex items-center justify-center modal-backdrop px-4 modal-content">
-    <div class="bg-[#1e293b] border border-red-500/30 rounded-2xl p-0 max-w-sm w-full shadow-2xl overflow-hidden">
+    <div class="bg-[#1e293b] border border-red-500/30 rounded-2xl p-0 max-w-sm w-full shadow-2xl overflow-hidden relative">
+        <button onclick="closeErrorModal()" class="absolute top-3 right-3 text-slate-400 hover:text-white text-xl font-bold z-10 w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10">&times;</button>
+        
         <div class="bg-red-600/20 p-6 text-center border-b border-red-500/20">
             <div class="text-5xl mb-2">⚠️</div>
             <h2 class="text-2xl font-bold text-red-400">Oops!</h2>
         </div>
         <div class="p-6 text-center">
-            <p id="errorMessage" class="text-slate-300 mb-6 text-lg">Something went wrong.</p>
+            <p id="errorMessage" class="text-slate-300 mb-6 text-lg font-medium">Something went wrong.</p>
             <div id="errorBtnContainer"></div>
         </div>
     </div>
@@ -291,10 +292,11 @@ export const ProductCard = (p: Product) => {
   `;
 };
 
-export const HistoryTable = (transactions: Transaction[], nextCursor: string | null) => {
+export const HistoryTable = (transactions: Transaction[], nextCursor: string | null, activeTab: string) => {
     let rows = "";
-    if (transactions.length === 0) { rows = `<tr><td colspan="4" class="p-4 text-center text-slate-500">No transaction history found.</td></tr>`; } 
-    else { 
+    if (transactions.length === 0) { 
+        rows = `<tr><td colspan="4" class="p-8 text-center text-slate-500 flex flex-col items-center"><span class="text-4xl mb-2">📜</span><span>No ${activeTab} history found.</span></td></tr>`; 
+    } else { 
         rows = transactions.map(t => {
             let color = 'text-white';
             let sign = '';
@@ -306,10 +308,27 @@ export const HistoryTable = (transactions: Transaction[], nextCursor: string | n
             return `<tr class="border-b border-slate-700 hover:bg-slate-800/50 transition"><td class="p-4 text-sm text-slate-400">${new Date(t.date).toLocaleDateString()}</td><td class="p-4"><span class="px-2 py-1 rounded text-[10px] font-bold uppercase ${bg} ${color}">${t.type.replace('_', ' ')}</span></td><td class="p-4 font-medium text-white">${t.itemName} ${t.detail ? `<div class="text-xs text-slate-500 mt-1 font-mono truncate w-32 md:w-64">${t.detail.substring(0, 30)}...</div>` : ''}</td><td class="p-4 text-right ${color} font-bold">${sign}${t.amount.toLocaleString()} Ks</td></tr>`;
         }).join(""); 
     }
-    return `<div class="glass rounded-xl overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-left"><thead class="bg-slate-800 text-slate-300 uppercase text-xs"><tr><th class="p-4">Date</th><th class="p-4">Type</th><th class="p-4">Description</th><th class="p-4 text-right">Amount</th></tr></thead><tbody class="divide-y divide-slate-700">${rows}</tbody></table></div>${nextCursor ? `<div class="p-4 text-center border-t border-slate-700"><a href="/history?cursor=${nextCursor}" class="inline-block bg-slate-700 hover:bg-slate-600 text-white px-6 py-2 rounded transition">Load Next 10 Entries</a></div>` : ''}</div>`;
+
+    // Tabs HTML
+    const tabs = [
+        { id: 'all', label: 'All' },
+        { id: 'purchase', label: 'Purchases' },
+        { id: 'topup', label: 'Top Up' }
+    ];
+    const tabsHtml = tabs.map(t => 
+        `<a href="/history?filter=${t.id}" class="flex-1 py-2 text-center text-sm font-bold rounded-lg transition ${activeTab === t.id ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}">${t.label}</a>`
+    ).join("");
+
+    return `
+        <div class="flex gap-2 mb-6 bg-slate-900/50 p-1 rounded-xl">${tabsHtml}</div>
+        <div class="glass rounded-xl overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left"><thead class="bg-slate-800 text-slate-300 uppercase text-xs"><tr><th class="p-4">Date</th><th class="p-4">Type</th><th class="p-4">Description</th><th class="p-4 text-right">Amount</th></tr></thead><tbody class="divide-y divide-slate-700">${rows}</tbody></table>
+            </div>
+            ${nextCursor ? `<div class="p-4 text-center border-t border-slate-700"><a href="/history?filter=${activeTab}&cursor=${nextCursor}" class="inline-block bg-slate-700 hover:bg-slate-600 text-white px-6 py-2 rounded transition">Load Next 10 Entries</a></div>` : ''}
+        </div>`;
 };
 
-// Updated Profile Page with Transfer Button
 export const ProfilePage = (user: User, bonusConfig: {active: boolean, amount: number}, message?: {type: 'success'|'error', text: string}) => {
     const avatarGrid = AVATARS.map(av => `<div id="av-${av}" onclick="selectAvatar('${av}')" class="avatar-option text-4xl p-3 bg-slate-800 rounded-xl cursor-pointer hover:bg-slate-700 transition border border-slate-600 flex justify-center items-center ${user.avatar === av ? 'ring-4 ring-blue-500' : ''}">${av}</div>`).join("");
     return Layout("Profile", `
@@ -336,36 +355,16 @@ export const ProfilePage = (user: User, bonusConfig: {active: boolean, amount: n
     `, user);
 }
 
-// New: Transfer Page UI
 export const TransferPage = (user: User, error?: string) => Layout("Transfer", `
     <div class="max-w-md mx-auto glass p-8 rounded-2xl border border-blue-500/30">
         <h1 class="text-2xl font-bold text-white mb-6 flex items-center gap-2"><svg class="w-6 h-6 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path></svg> Transfer Money</h1>
-        
         ${error ? `<div class="bg-red-500/20 border border-red-500 text-red-200 p-3 rounded-lg mb-4 text-sm text-center">${error}</div>` : ''}
-        
         <form method="POST" action="/transfer" class="space-y-4">
-            <div>
-                <label class="block text-sm font-medium text-slate-400 mb-1">Recipient Username</label>
-                <input type="text" name="receiver" required class="w-full bg-slate-900 border border-slate-600 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Enter username">
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-slate-400 mb-1">Amount (Ks)</label>
-                <input type="number" name="amount" min="500" max="50000" required class="w-full bg-slate-900 border border-slate-600 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Min: 500 - Max: 50,000">
-            </div>
-            
-            <div class="text-xs text-slate-500 bg-slate-800 p-3 rounded border border-slate-700">
-                <p>ℹ️ <strong>Rules:</strong></p>
-                <ul class="list-disc pl-4 mt-1 space-y-1">
-                    <li>Min: 500 Ks | Max: 50,000 Ks</li>
-                    <li>If both users > 30 days: <strong>Free</strong></li>
-                    <li>If any user < 30 days: <strong>50 Ks Fee</strong></li>
-                </ul>
-            </div>
-
+            <div><label class="block text-sm font-medium text-slate-400 mb-1">Recipient Username</label><input type="text" name="receiver" required class="w-full bg-slate-900 border border-slate-600 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Enter username"></div>
+            <div><label class="block text-sm font-medium text-slate-400 mb-1">Amount (Ks)</label><input type="number" name="amount" min="500" max="50000" required class="w-full bg-slate-900 border border-slate-600 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Min: 500 - Max: 50,000"></div>
+            <div class="text-xs text-slate-500 bg-slate-800 p-3 rounded border border-slate-700"><p>ℹ️ <strong>Rules:</strong></p><ul class="list-disc pl-4 mt-1 space-y-1"><li>Min: 500 Ks | Max: 50,000 Ks</li><li>If both users > 30 days: <strong>Free</strong></li><li>If any user < 30 days: <strong>50 Ks Fee</strong></li></ul></div>
             <button class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-lg transition shadow-lg">Confirm Transfer</button>
         </form>
-        <div class="mt-4 text-center">
-            <a href="/profile" class="text-slate-500 hover:text-white text-sm">Cancel</a>
-        </div>
+        <div class="mt-4 text-center"><a href="/profile" class="text-slate-500 hover:text-white text-sm">Cancel</a></div>
     </div>
 `, user);
