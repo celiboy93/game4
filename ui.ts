@@ -1,4 +1,4 @@
-import { User, Product, Transaction } from "./db.ts";
+import { User, Product, Transaction, GlobalSale } from "./db.ts";
 
 const AVATARS = ["😎", "👾", "🤖", "👻", "👽", "🐯", "🐼", "🦊", "🦁", "🐷", "🐸", "💀"];
 
@@ -224,7 +224,6 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
   <div id="errorModal" class="hidden fixed inset-0 z-50 flex items-center justify-center modal-backdrop px-4 modal-content">
     <div class="bg-[#1e293b] border border-red-500/30 rounded-2xl p-0 max-w-sm w-full shadow-2xl overflow-hidden relative">
         <button onclick="closeErrorModal()" class="absolute top-3 right-3 text-slate-400 hover:text-white text-xl font-bold z-10 w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10">&times;</button>
-        
         <div class="bg-red-600/20 p-6 text-center border-b border-red-500/20">
             <div class="text-5xl mb-2">⚠️</div>
             <h2 class="text-2xl font-bold text-red-400">Oops!</h2>
@@ -242,6 +241,8 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
 </body>
 </html>
 `;
+
+// UI COMPONENTS
 
 export const AuthForm = (type: "Login" | "Register", error?: string) => `
 <div class="max-w-md mx-auto glass p-8 rounded-2xl shadow-2xl">
@@ -264,69 +265,27 @@ export const ProductCard = (p: Product) => {
   const manualStock = p.stock ? p.stock.length : 0;
   const stockDisplay = isManual ? `Stock: ${manualStock}` : `Stock: <span class="api-stock-loader animate-pulse" data-id="${p.id}">...</span>`;
   const isDisabled = isManual && manualStock === 0;
-  
   const imageHtml = p.imageUrl 
-      ? `<img src="${p.imageUrl}" class="w-24 h-24 rounded-lg object-cover border border-slate-700 shadow-md" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-         <div class="w-24 h-24 rounded-lg bg-slate-800 items-center justify-center text-3xl hidden border border-slate-700 shadow-md">🎮</div>`
+      ? `<img src="${p.imageUrl}" class="w-24 h-24 rounded-lg object-cover border border-slate-700 shadow-md" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="w-24 h-24 rounded-lg bg-slate-800 items-center justify-center text-3xl hidden border border-slate-700 shadow-md">🎮</div>`
       : `<div class="w-24 h-24 rounded-lg bg-slate-800 flex items-center justify-center text-3xl border border-slate-700 shadow-md">🎮</div>`;
 
-  return `
-  <div class="product-card glass rounded-xl overflow-hidden hover:shadow-2xl hover:shadow-blue-500/10 transition transform hover:-translate-y-1 duration-300 p-4" data-name="${p.name}">
-    <div class="flex gap-4">
-        <div class="flex-shrink-0">${imageHtml}</div>
-        <div class="flex-grow flex flex-col justify-between">
-            <div>
-                <div class="flex justify-between items-start">
-                    <h3 class="text-lg font-bold text-white leading-tight">${p.name}</h3>
-                    <span id="badge-${p.id}" class="text-[10px] px-2 py-1 rounded whitespace-nowrap ${!isDisabled ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">${stockDisplay}</span>
-                </div>
-                <p class="text-slate-400 text-xs mt-1 line-clamp-2">${p.description}</p>
-            </div>
-            <div class="mt-2">
-                <div class="text-xl font-bold text-blue-400 mb-2">${p.price.toLocaleString()} Ks</div>
-                <button id="btn-${p.id}" ${isDisabled ? 'disabled' : `onclick="confirmBuy('${p.id}', '${p.name}', '${p.price.toLocaleString()}')"`} class="w-full text-sm ${!isDisabled ? 'bg-blue-600 hover:bg-blue-500' : 'bg-slate-700 cursor-not-allowed'} text-white font-bold py-2 rounded-lg transition flex justify-center items-center gap-2">${isDisabled ? 'Out of Stock' : '⚡ Buy Now'}</button>
-            </div>
-        </div>
-    </div>
-  </div>
-  `;
+  return `<div class="product-card glass rounded-xl overflow-hidden hover:shadow-2xl hover:shadow-blue-500/10 transition transform hover:-translate-y-1 duration-300 p-4" data-name="${p.name}"><div class="flex gap-4"><div class="flex-shrink-0">${imageHtml}</div><div class="flex-grow flex flex-col justify-between"><div><div class="flex justify-between items-start"><h3 class="text-lg font-bold text-white leading-tight">${p.name}</h3><span id="badge-${p.id}" class="text-[10px] px-2 py-1 rounded whitespace-nowrap ${!isDisabled ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">${stockDisplay}</span></div><p class="text-slate-400 text-xs mt-1 line-clamp-2">${p.description}</p></div><div class="mt-2"><div class="text-xl font-bold text-blue-400 mb-2">${p.price.toLocaleString()} Ks</div><button id="btn-${p.id}" ${isDisabled ? 'disabled' : `onclick="confirmBuy('${p.id}', '${p.name}', '${p.price.toLocaleString()}')"`} class="w-full text-sm ${!isDisabled ? 'bg-blue-600 hover:bg-blue-500' : 'bg-slate-700 cursor-not-allowed'} text-white font-bold py-2 rounded-lg transition flex justify-center items-center gap-2">${isDisabled ? 'Out of Stock' : '⚡ Buy Now'}</button></div></div></div></div>`;
 };
 
 export const HistoryTable = (transactions: Transaction[], nextCursor: string | null, activeTab: string) => {
     let rows = "";
-    if (transactions.length === 0) { 
-        rows = `<tr><td colspan="4" class="p-8 text-center text-slate-500 flex flex-col items-center"><span class="text-4xl mb-2">📜</span><span>No ${activeTab} history found.</span></td></tr>`; 
-    } else { 
+    if (transactions.length === 0) { rows = `<tr><td colspan="4" class="p-8 text-center text-slate-500 flex flex-col items-center"><span class="text-4xl mb-2">📜</span><span>No ${activeTab} history found.</span></td></tr>`; } 
+    else { 
         rows = transactions.map(t => {
-            let color = 'text-white';
-            let sign = '';
-            let bg = 'bg-slate-700';
-            
+            let color = 'text-white'; let sign = ''; let bg = 'bg-slate-700';
             if(t.type === 'purchase' || t.type === 'transfer_sent') { color = 'text-red-400'; sign = '-'; bg = 'bg-red-500/20'; }
-            else if (t.type === 'topup' || t.type === 'voucher' || t.type === 'bonus' || t.type === 'transfer_received') { color = 'text-green-400'; sign = '+'; bg = 'bg-green-500/20'; }
-            
+            else if (t.type === 'topup' || t.type === 'voucher' || t.type === 'bonus' || t.type === 'transfer_received' || t.type === 'refund') { color = 'text-green-400'; sign = '+'; bg = 'bg-green-500/20'; }
             return `<tr class="border-b border-slate-700 hover:bg-slate-800/50 transition"><td class="p-4 text-sm text-slate-400">${new Date(t.date).toLocaleDateString()}</td><td class="p-4"><span class="px-2 py-1 rounded text-[10px] font-bold uppercase ${bg} ${color}">${t.type.replace('_', ' ')}</span></td><td class="p-4 font-medium text-white">${t.itemName} ${t.detail ? `<div class="text-xs text-slate-500 mt-1 font-mono truncate w-32 md:w-64">${t.detail.substring(0, 30)}...</div>` : ''}</td><td class="p-4 text-right ${color} font-bold">${sign}${t.amount.toLocaleString()} Ks</td></tr>`;
         }).join(""); 
     }
-
-    // Tabs HTML
-    const tabs = [
-        { id: 'all', label: 'All' },
-        { id: 'purchase', label: 'Purchases' },
-        { id: 'topup', label: 'Top Up' }
-    ];
-    const tabsHtml = tabs.map(t => 
-        `<a href="/history?filter=${t.id}" class="flex-1 py-2 text-center text-sm font-bold rounded-lg transition ${activeTab === t.id ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}">${t.label}</a>`
-    ).join("");
-
-    return `
-        <div class="flex gap-2 mb-6 bg-slate-900/50 p-1 rounded-xl">${tabsHtml}</div>
-        <div class="glass rounded-xl overflow-hidden">
-            <div class="overflow-x-auto">
-                <table class="w-full text-left"><thead class="bg-slate-800 text-slate-300 uppercase text-xs"><tr><th class="p-4">Date</th><th class="p-4">Type</th><th class="p-4">Description</th><th class="p-4 text-right">Amount</th></tr></thead><tbody class="divide-y divide-slate-700">${rows}</tbody></table>
-            </div>
-            ${nextCursor ? `<div class="p-4 text-center border-t border-slate-700"><a href="/history?filter=${activeTab}&cursor=${nextCursor}" class="inline-block bg-slate-700 hover:bg-slate-600 text-white px-6 py-2 rounded transition">Load Next 10 Entries</a></div>` : ''}
-        </div>`;
+    const tabs = [{ id: 'all', label: 'All' }, { id: 'purchase', label: 'Purchases' }, { id: 'topup', label: 'Top Up' }];
+    const tabsHtml = tabs.map(t => `<a href="/history?filter=${t.id}" class="flex-1 py-2 text-center text-sm font-bold rounded-lg transition ${activeTab === t.id ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}">${t.label}</a>`).join("");
+    return `<div class="flex gap-2 mb-6 bg-slate-900/50 p-1 rounded-xl">${tabsHtml}</div><div class="glass rounded-xl overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-left"><thead class="bg-slate-800 text-slate-300 uppercase text-xs"><tr><th class="p-4">Date</th><th class="p-4">Type</th><th class="p-4">Description</th><th class="p-4 text-right">Amount</th></tr></thead><tbody class="divide-y divide-slate-700">${rows}</tbody></table></div>${nextCursor ? `<div class="p-4 text-center border-t border-slate-700"><a href="/history?filter=${activeTab}&cursor=${nextCursor}" class="inline-block bg-slate-700 hover:bg-slate-600 text-white px-6 py-2 rounded transition">Load Next 10 Entries</a></div>` : ''}</div>`;
 };
 
 export const ProfilePage = (user: User, bonusConfig: {active: boolean, amount: number}, message?: {type: 'success'|'error', text: string}) => {
@@ -368,3 +327,40 @@ export const TransferPage = (user: User, error?: string) => Layout("Transfer", `
         <div class="mt-4 text-center"><a href="/profile" class="text-slate-500 hover:text-white text-sm">Cancel</a></div>
     </div>
 `, user);
+
+// New: Admin Components
+export const AdminUserTable = (usersHtml: string, nextCursor: string | null) => `
+<div class="glass rounded-xl overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-left"><thead class="bg-slate-800 text-slate-300 uppercase text-xs"><tr><th class="p-3">User</th><th class="p-3 text-right">Balance</th><th class="p-3 text-center">Status</th></tr></thead><tbody class="divide-y divide-slate-700">${usersHtml}</tbody></table></div>
+    <div class="p-3 border-t border-slate-700 flex justify-between text-sm">
+        ${nextCursor ? `<a href="/admin?user_cursor=${nextCursor}" class="text-blue-400 hover:underline">Next Page →</a>` : '<span class="text-slate-600">End of list</span>'}
+    </div>
+</div>`;
+
+export const AdminSalesTable = (sales: GlobalSale[], nextCursor: string | null) => {
+    let rows = sales.map(s => `
+        <tr class="border-b border-slate-700 hover:bg-slate-800/50 text-sm">
+            <td class="p-3 text-slate-400">${new Date(s.date).toLocaleString()}</td>
+            <td class="p-3 text-white font-bold">${s.username}</td>
+            <td class="p-3">${s.itemName}</td>
+            <td class="p-3 text-green-400">${s.amount}</td>
+            <td class="p-3">
+                ${s.refunded ? '<span class="text-red-500 text-xs font-bold">REFUNDED</span>' 
+                : `<form action="/admin/refund" method="POST" onsubmit="return confirm('Refund ${s.username}?')">
+                    <input type="hidden" name="username" value="${s.username}">
+                    <input type="hidden" name="date" value="${s.date}">
+                    <input type="hidden" name="id" value="${s.id}">
+                    <button class="text-xs bg-red-600 hover:bg-red-500 text-white px-2 py-1 rounded">Refund</button>
+                   </form>`}
+            </td>
+        </tr>`).join("");
+        
+    if(sales.length === 0) rows = `<tr><td colspan="5" class="p-4 text-center text-slate-500">No recent sales.</td></tr>`;
+
+    return `
+    <div class="glass rounded-xl overflow-hidden mt-6">
+        <div class="px-6 py-4 border-b border-slate-700"><h3 class="text-lg font-bold text-white">🛒 Recent Sales Log</h3></div>
+        <div class="overflow-x-auto"><table class="w-full text-left"><thead class="bg-slate-800 text-slate-300 uppercase text-xs"><tr><th class="p-3">Date</th><th class="p-3">User</th><th class="p-3">Item</th><th class="p-3">Price</th><th class="p-3">Action</th></tr></thead><tbody class="divide-y divide-slate-700">${rows}</tbody></table></div>
+        ${nextCursor ? `<div class="p-3 text-center border-t border-slate-700"><a href="/admin?sale_cursor=${nextCursor}" class="text-blue-400 hover:underline">Load More Sales</a></div>` : ''}
+    </div>`;
+}
