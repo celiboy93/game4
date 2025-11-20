@@ -43,7 +43,9 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
         });
     }
 
+    // --- App-like Page Transition Loader ---
     document.addEventListener("DOMContentLoaded", () => {
+        // 1. Handle Lazy Stock
         const apiProducts = document.querySelectorAll(".api-stock-loader");
         apiProducts.forEach(async (el) => {
             const id = el.dataset.id;
@@ -54,6 +56,35 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
                 if(text.includes("0") || text === "?") { disableProductCard(id); }
             } catch { el.innerText = "?"; }
         });
+
+        // 2. Handle Page Navigation Loader
+        const loader = document.getElementById('page-loader');
+        document.querySelectorAll('a').forEach(link => {
+            link.addEventListener('click', (e) => {
+                const href = link.getAttribute('href');
+                // Only show loader for internal navigation, not JS calls or anchors
+                if (href && !href.startsWith('#') && !href.startsWith('javascript') && !e.ctrlKey && !e.metaKey) {
+                    loader.classList.remove('hidden');
+                }
+            });
+        });
+        
+        // Show loader on forms too
+        document.querySelectorAll('form').forEach(form => {
+            form.addEventListener('submit', () => {
+                // Don't show if it's a modal internal form
+                if(!form.closest('.modal-content')) {
+                    loader.classList.remove('hidden');
+                }
+            });
+        });
+    });
+    
+    // Hide loader when page comes back from bfcache (back button)
+    window.addEventListener('pageshow', (event) => {
+        if (event.persisted) {
+            document.getElementById('page-loader').classList.add('hidden');
+        }
     });
 
     function disableProductCard(id) {
@@ -83,19 +114,19 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
     function closeSuccessModal() { document.getElementById('successModal').classList.add('hidden'); }
     function closeErrorModal() { document.getElementById('errorModal').classList.add('hidden'); }
 
-    // NEW: Custom Error Modal Function
     function showErrorModal(msg, isBalanceError = false) {
         document.getElementById('errorMessage').innerText = msg;
-        const btn = document.getElementById('errorActionBtn');
+        const btnContainer = document.getElementById('errorBtnContainer');
         
         if(isBalanceError) {
-            btn.innerText = "💰 Top Up Now";
-            btn.onclick = () => window.location.href = '/deposit';
-            btn.className = "w-full bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded-xl transition shadow-lg";
+            btnContainer.innerHTML = \`
+                <div class="flex gap-3 w-full">
+                    <button onclick="closeErrorModal()" class="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 rounded-xl transition">Cancel</button>
+                    <a href="/deposit" class="flex-1 bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded-xl transition shadow-lg text-center flex items-center justify-center">Top Up</a>
+                </div>
+            \`;
         } else {
-            btn.innerText = "Close";
-            btn.onclick = closeErrorModal;
-            btn.className = "w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 rounded-xl transition";
+            btnContainer.innerHTML = \`<button onclick="closeErrorModal()" class="w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 rounded-xl transition">Close</button>\`;
         }
         document.getElementById('errorModal').classList.remove('hidden');
     }
@@ -115,16 +146,10 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
                 document.getElementById('successModal').classList.remove('hidden');
                 document.querySelectorAll('.balance-display').forEach(el => el.innerText = data.newBalance.toLocaleString() + " Ks");
             } else { 
-                // Updated: Use Custom Modal instead of alert
                 const isBalanceError = data.message === "Insufficient Balance";
                 showErrorModal(data.message || "Purchase Failed", isBalanceError);
             }
-        } catch (e) { 
-            showErrorModal("Connection Error"); 
-        } finally { 
-            confirmBtn.innerText = originalText; 
-            confirmBtn.disabled = false; 
-        }
+        } catch (e) { showErrorModal("Connection Error"); } finally { confirmBtn.innerText = originalText; confirmBtn.disabled = false; }
     }
 
     function selectAvatar(avatar) {
@@ -141,9 +166,18 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
     .marquee-container { overflow: hidden; white-space: nowrap; position: relative; }
     .marquee-content { display: inline-block; animation: marquee 15s linear infinite; padding-left: 100%; }
     @keyframes marquee { 0% { transform: translate(0, 0); } 100% { transform: translate(-100%, 0); } }
+    
+    /* Loader CSS */
+    .loader { border: 4px solid rgba(255,255,255,0.1); width: 40px; height: 40px; border-radius: 50%; border-left-color: #3b82f6; animation: spin 1s linear infinite; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
   </style>
 </head>
 <body class="min-h-screen flex flex-col relative">
+  
+  <div id="page-loader" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div class="loader"></div>
+  </div>
+
   <nav class="glass sticky top-0 z-40 border-b border-slate-700">
     <div class="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
       <a href="/" class="text-2xl font-bold text-blue-500 hover:text-blue-400 transition">🎮 GameStore</a>
@@ -173,7 +207,7 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
     ${content}
   </main>
 
-  <div id="confirmModal" class="hidden fixed inset-0 z-50 flex items-center justify-center modal-backdrop px-4">
+  <div id="confirmModal" class="hidden fixed inset-0 z-50 flex items-center justify-center modal-backdrop px-4 modal-content">
     <div class="bg-[#1e293b] border border-slate-600 rounded-2xl p-6 max-w-sm w-full shadow-2xl transform transition-all scale-100">
         <h3 class="text-xl font-bold text-white mb-2">Confirm Purchase?</h3>
         <p class="text-slate-400 mb-4">Are you sure you want to buy <br><span id="confirmName" class="text-blue-400 font-bold"></span> for <span id="confirmPrice" class="text-green-400 font-bold"></span>?</p>
@@ -184,7 +218,7 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
     </div>
   </div>
 
-  <div id="successModal" class="hidden fixed inset-0 z-50 flex items-center justify-center modal-backdrop px-4">
+  <div id="successModal" class="hidden fixed inset-0 z-50 flex items-center justify-center modal-backdrop px-4 modal-content">
     <div class="bg-[#1e293b] border border-green-500/30 rounded-2xl p-0 max-w-md w-full shadow-2xl overflow-hidden">
         <div class="bg-green-600/20 p-6 text-center border-b border-green-500/20">
             <div class="text-5xl mb-2">🎉</div>
@@ -203,7 +237,7 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
     </div>
   </div>
 
-  <div id="errorModal" class="hidden fixed inset-0 z-50 flex items-center justify-center modal-backdrop px-4">
+  <div id="errorModal" class="hidden fixed inset-0 z-50 flex items-center justify-center modal-backdrop px-4 modal-content">
     <div class="bg-[#1e293b] border border-red-500/30 rounded-2xl p-0 max-w-sm w-full shadow-2xl overflow-hidden">
         <div class="bg-red-600/20 p-6 text-center border-b border-red-500/20">
             <div class="text-5xl mb-2">⚠️</div>
@@ -211,7 +245,7 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
         </div>
         <div class="p-6 text-center">
             <p id="errorMessage" class="text-slate-300 mb-6 text-lg">Something went wrong.</p>
-            <button id="errorActionBtn" class="w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 rounded-xl transition">Close</button>
+            <div id="errorBtnContainer"></div>
         </div>
     </div>
   </div>
@@ -239,12 +273,41 @@ export const AuthForm = (type: "Login" | "Register", error?: string) => `
 
 export const MaintenancePage = () => `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Maintenance</title><script src="https://cdn.tailwindcss.com"></script><style>body { font-family: sans-serif; background-color: #0f172a; color: #e2e8f0; }</style></head><body class="h-screen flex flex-col items-center justify-center p-4 text-center"><div class="bg-slate-800 p-8 rounded-2xl border border-slate-700 shadow-2xl max-w-md w-full"><div class="text-6xl mb-4">🚧</div><h1 class="text-3xl font-bold text-white mb-2">Under Maintenance</h1><p class="text-slate-400 mb-6">We are currently updating our server. Please check back later.</p><a href="/login" class="text-sm text-slate-600 hover:text-slate-400">Admin Login</a></div></body></html>`;
 
+// REDESIGNED PRODUCT CARD
 export const ProductCard = (p: Product) => {
   const isManual = p.type === 'manual';
   const manualStock = p.stock ? p.stock.length : 0;
   const stockDisplay = isManual ? `Stock: ${manualStock}` : `Stock: <span class="api-stock-loader animate-pulse" data-id="${p.id}">...</span>`;
   const isDisabled = isManual && manualStock === 0;
-  return `<div class="product-card glass rounded-xl overflow-hidden hover:shadow-2xl hover:shadow-blue-500/10 transition transform hover:-translate-y-1 duration-300 flex flex-col h-full" data-name="${p.name}"><div class="p-5 flex-grow"><div class="flex justify-between items-start mb-2"><h3 class="text-xl font-bold text-white truncate">${p.name}</h3><span id="badge-${p.id}" class="text-xs px-2 py-1 rounded ${!isDisabled ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">${stockDisplay}</span></div><p class="text-slate-400 text-sm mb-4 line-clamp-2">${p.description}</p><div class="text-2xl font-bold text-blue-400">${p.price.toLocaleString()} Ks</div></div><div class="p-5 pt-0 mt-auto"><button id="btn-${p.id}" ${isDisabled ? 'disabled' : `onclick="confirmBuy('${p.id}', '${p.name}', '${p.price.toLocaleString()}')"`} class="w-full ${!isDisabled ? 'bg-blue-600 hover:bg-blue-500' : 'bg-slate-700 cursor-not-allowed'} text-white font-bold py-2 rounded-lg transition flex justify-center items-center gap-2">${isDisabled ? '🚫 Out of Stock' : '⚡ Buy Now'}</button></div></div>`;
+  
+  // Image handling: Use custom image or fallback icon
+  const imageHtml = p.imageUrl 
+      ? `<img src="${p.imageUrl}" class="w-24 h-24 rounded-lg object-cover border border-slate-700 shadow-md" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+         <div class="w-24 h-24 rounded-lg bg-slate-800 items-center justify-center text-3xl hidden border border-slate-700 shadow-md">🎮</div>`
+      : `<div class="w-24 h-24 rounded-lg bg-slate-800 flex items-center justify-center text-3xl border border-slate-700 shadow-md">🎮</div>`;
+
+  return `
+  <div class="product-card glass rounded-xl overflow-hidden hover:shadow-2xl hover:shadow-blue-500/10 transition transform hover:-translate-y-1 duration-300 p-4" data-name="${p.name}">
+    <div class="flex gap-4">
+        <div class="flex-shrink-0">
+            ${imageHtml}
+        </div>
+        <div class="flex-grow flex flex-col justify-between">
+            <div>
+                <div class="flex justify-between items-start">
+                    <h3 class="text-lg font-bold text-white leading-tight">${p.name}</h3>
+                    <span id="badge-${p.id}" class="text-[10px] px-2 py-1 rounded whitespace-nowrap ${!isDisabled ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">${stockDisplay}</span>
+                </div>
+                <p class="text-slate-400 text-xs mt-1 line-clamp-2">${p.description}</p>
+            </div>
+            <div class="mt-2">
+                <div class="text-xl font-bold text-blue-400 mb-2">${p.price.toLocaleString()} Ks</div>
+                <button id="btn-${p.id}" ${isDisabled ? 'disabled' : `onclick="confirmBuy('${p.id}', '${p.name}', '${p.price.toLocaleString()}')"`} class="w-full text-sm ${!isDisabled ? 'bg-blue-600 hover:bg-blue-500' : 'bg-slate-700 cursor-not-allowed'} text-white font-bold py-2 rounded-lg transition flex justify-center items-center gap-2">${isDisabled ? 'Out of Stock' : '⚡ Buy Now'}</button>
+            </div>
+        </div>
+    </div>
+  </div>
+  `;
 };
 
 export const HistoryTable = (transactions: Transaction[], nextCursor: string | null) => {
