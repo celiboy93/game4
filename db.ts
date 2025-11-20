@@ -6,7 +6,8 @@ export interface User {
   balance: number;
   isAdmin: boolean;
   avatar?: string;
-  isBlocked?: boolean; // New: Block Status
+  isBlocked?: boolean;
+  hasClaimedBonus?: boolean;
 }
 
 export interface Product {
@@ -21,7 +22,7 @@ export interface Product {
 
 export interface Transaction {
   id: string;
-  type: "purchase" | "topup" | "voucher";
+  type: "purchase" | "topup" | "voucher" | "bonus";
   itemName: string;
   amount: number;
   detail: string;
@@ -49,7 +50,7 @@ export async function getProduct(id: string) {
   return res.value;
 }
 
-export async function addHistory(username: string, type: "purchase" | "topup" | "voucher", itemName: string, amount: number, detail: string) {
+export async function addHistory(username: string, type: "purchase" | "topup" | "voucher" | "bonus", itemName: string, amount: number, detail: string) {
   const id = crypto.randomUUID();
   const transaction: Transaction = {
     id, type, itemName, amount, detail, date: Date.now()
@@ -72,17 +73,21 @@ export async function getConfig() {
     const telegram = await kv.get<string>(["config", "telegram"]);
     const maintenance = await kv.get<boolean>(["config", "maintenance"]);
     const noReg = await kv.get<boolean>(["config", "no_reg"]);
+    const bonusActive = await kv.get<boolean>(["config", "bonus_active"]);
+    const bonusAmount = await kv.get<number>(["config", "bonus_amount"]);
     
     return {
         banner: banner.value || "Welcome to GameStore!",
         payment: payment.value || "Kpay: 09xxxxxx\nWave: 09xxxxxx",
         telegram: telegram.value || "username",
         maintenance: maintenance.value ?? false,
-        noReg: noReg.value ?? false
+        noReg: noReg.value ?? false,
+        bonusActive: bonusActive.value ?? false,
+        bonusAmount: bonusAmount.value || 0
     };
 }
 
-export async function setConfig(key: string, value: string | boolean) {
+export async function setConfig(key: string, value: string | boolean | number) {
     await kv.set(["config", key], value);
 }
 
