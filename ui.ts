@@ -1,4 +1,4 @@
-import { User, Product, Transaction } from "./db.ts";
+import { User, Product, Transaction, GlobalSale } from "./db.ts";
 
 const AVATARS = ["😎", "👾", "🤖", "👻", "👽", "🐯", "🐼", "🦊", "🦁", "🐷", "🐸", "💀"];
 
@@ -11,21 +11,19 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
   <title>${title}</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
-    // --- Wait for Page Load to finish ---
-    window.addEventListener('load', () => {
-        const loader = document.getElementById('page-loader');
-        // Fade out effect
-        loader.classList.add('opacity-0');
-        setTimeout(() => {
-            loader.classList.add('hidden');
-        }, 300);
-    });
-
-    // --- Show Loader on Navigation ---
+    // --- Slider Logic ---
     document.addEventListener("DOMContentLoaded", () => {
-        const loader = document.getElementById('page-loader');
-        
-        // 1. API Stock Lazy Load
+        const sliderTrack = document.getElementById('sliderTrack');
+        if(sliderTrack) {
+            let index = 0;
+            const slides = sliderTrack.children.length;
+            setInterval(() => {
+                index = (index + 1) % slides;
+                sliderTrack.style.transform = \`translateX(-\${index * 100}%)\`;
+            }, 3000); // Change slide every 3 seconds
+        }
+
+        // Lazy Load & Other scripts
         const apiProducts = document.querySelectorAll(".api-stock-loader");
         apiProducts.forEach(async (el) => {
             const id = el.dataset.id;
@@ -37,35 +35,19 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
             } catch { el.innerText = "?"; }
         });
 
-        // 2. Link Clicks
+        const loader = document.getElementById('page-loader');
         document.querySelectorAll('a').forEach(link => {
             link.addEventListener('click', (e) => {
                 const href = link.getAttribute('href');
-                // Don't show loader for external links or anchor tags
-                if (href && !href.startsWith('#') && !href.startsWith('javascript') && !e.ctrlKey && !e.metaKey && !href.startsWith('http')) {
+                if (href && !href.startsWith('#') && !href.startsWith('javascript') && !e.ctrlKey && !e.metaKey) {
                     loader.classList.remove('hidden');
-                    loader.classList.remove('opacity-0');
-                }
-            });
-        });
-
-        // 3. Form Submits
-        document.querySelectorAll('form').forEach(form => {
-            form.addEventListener('submit', () => {
-                if(!form.closest('.modal-content')) { 
-                    loader.classList.remove('hidden');
-                    loader.classList.remove('opacity-0');
                 }
             });
         });
     });
-
-    // Back Button Fix (bfcache)
+    
     window.addEventListener('pageshow', (event) => {
-        if (event.persisted) { 
-            const loader = document.getElementById('page-loader');
-            loader.classList.add('hidden'); 
-        }
+        if (event.persisted) { document.getElementById('page-loader').classList.add('hidden'); }
     });
 
     function copyToClipboard(text, btnId = 'copyBtn') {
@@ -178,19 +160,15 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
     .marquee-container { overflow: hidden; white-space: nowrap; position: relative; }
     .marquee-content { display: inline-block; animation: marquee 15s linear infinite; padding-left: 100%; }
     @keyframes marquee { 0% { transform: translate(0, 0); } 100% { transform: translate(-100%, 0); } }
-    /* Enhanced Loader */
     .loader { border: 4px solid rgba(59, 130, 246, 0.2); width: 45px; height: 45px; border-radius: 50%; border-left-color: #3b82f6; animation: spin 0.8s linear infinite; box-shadow: 0 0 15px rgba(59, 130, 246, 0.5); }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    /* Slider CSS */
+    #sliderTrack { transition: transform 0.5s ease-in-out; }
   </style>
 </head>
 <body class="min-h-screen flex flex-col relative">
   
-  <div id="page-loader" class="fixed inset-0 z-[60] flex items-center justify-center bg-[#0f172a] transition-opacity duration-300">
-      <div class="flex flex-col items-center">
-          <div class="loader mb-4"></div>
-          <div class="text-blue-400 font-bold text-sm animate-pulse">LOADING...</div>
-      </div>
-  </div>
+  <div id="page-loader" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm"><div class="loader"></div></div>
 
   <nav class="glass sticky top-0 z-40 border-b border-slate-700">
     <div class="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
@@ -271,6 +249,16 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
   </footer>
 </body>
 </html>
+`;
+
+// NEW SLIDER COMPONENT
+export const ImageSlider = (images: string[]) => `
+<div class="relative w-full h-48 md:h-64 overflow-hidden rounded-2xl shadow-2xl mb-6 border border-slate-700">
+    <div id="sliderTrack" class="flex h-full w-full">
+        ${images.map(img => `<div class="flex-shrink-0 w-full h-full"><img src="${img}" class="w-full h-full object-cover"></div>`).join('')}
+    </div>
+    <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent pointer-events-none"></div>
+</div>
 `;
 
 export const AuthForm = (type: "Login" | "Register", error?: string) => `
@@ -378,7 +366,7 @@ export const TransferPage = (user: User, error?: string) => Layout("Transfer", `
     </div>
 `, user);
 
-// New: Admin Components
+// Admin Components
 export const AdminUserTable = (usersHtml: string, nextCursor: string | null) => `
 <div class="glass rounded-xl overflow-hidden">
     <div class="overflow-x-auto"><table class="w-full text-left"><thead class="bg-slate-800 text-slate-300 uppercase text-xs"><tr><th class="p-3">User</th><th class="p-3 text-right">Balance</th><th class="p-3 text-center">Status</th></tr></thead><tbody class="divide-y divide-slate-700">${usersHtml}</tbody></table></div>
@@ -396,21 +384,9 @@ export const AdminSalesTable = (sales: GlobalSale[], nextCursor: string | null) 
             <td class="p-3 text-green-400">${s.amount}</td>
             <td class="p-3">
                 ${s.refunded ? '<span class="text-red-500 text-xs font-bold">REFUNDED</span>' 
-                : `<form action="/admin/refund" method="POST" onsubmit="return confirm('Refund ${s.username}?')">
-                    <input type="hidden" name="username" value="${s.username}">
-                    <input type="hidden" name="date" value="${s.date}">
-                    <input type="hidden" name="id" value="${s.id}">
-                    <button class="text-xs bg-red-600 hover:bg-red-500 text-white px-2 py-1 rounded">Refund</button>
-                   </form>`}
+                : `<form action="/admin/refund" method="POST" onsubmit="return confirm('Refund ${s.username}?')"><input type="hidden" name="username" value="${s.username}"><input type="hidden" name="date" value="${s.date}"><input type="hidden" name="id" value="${s.id}"><button class="text-xs bg-red-600 hover:bg-red-500 text-white px-2 py-1 rounded">Refund</button></form>`}
             </td>
         </tr>`).join("");
-        
     if(sales.length === 0) rows = `<tr><td colspan="5" class="p-4 text-center text-slate-500">No recent sales.</td></tr>`;
-
-    return `
-    <div class="glass rounded-xl overflow-hidden mt-6">
-        <div class="px-6 py-4 border-b border-slate-700"><h3 class="text-lg font-bold text-white">🛒 Recent Sales Log</h3></div>
-        <div class="overflow-x-auto"><table class="w-full text-left"><thead class="bg-slate-800 text-slate-300 uppercase text-xs"><tr><th class="p-3">Date</th><th class="p-3">User</th><th class="p-3">Item</th><th class="p-3">Price</th><th class="p-3">Action</th></tr></thead><tbody class="divide-y divide-slate-700">${rows}</tbody></table></div>
-        ${nextCursor ? `<div class="p-3 text-center border-t border-slate-700"><a href="/admin?sale_cursor=${nextCursor}" class="text-blue-400 hover:underline">Load More Sales</a></div>` : ''}
-    </div>`;
+    return `<div class="glass rounded-xl overflow-hidden mt-6"><div class="px-6 py-4 border-b border-slate-700"><h3 class="text-lg font-bold text-white">🛒 Recent Sales Log</h3></div><div class="overflow-x-auto"><table class="w-full text-left"><thead class="bg-slate-800 text-slate-300 uppercase text-xs"><tr><th class="p-3">Date</th><th class="p-3">User</th><th class="p-3">Item</th><th class="p-3">Price</th><th class="p-3">Action</th></tr></thead><tbody class="divide-y divide-slate-700">${rows}</tbody></table></div>${nextCursor ? `<div class="p-3 text-center border-t border-slate-700"><a href="/admin?sale_cursor=${nextCursor}" class="text-blue-400 hover:underline">Load More Sales</a></div>` : ''}</div>`;
 }
