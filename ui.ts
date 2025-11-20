@@ -1,4 +1,4 @@
-import { User, Product, Transaction, GlobalSale, TwoDBet } from "./db.ts";
+import { User, Product, Transaction, GlobalSale, TwoDResult, TwoDBet } from "./db.ts";
 
 const AVATARS = ["😎", "👾", "🤖", "👻", "👽", "🐯", "🐼", "🦊", "🦁", "🐷", "🐸", "💀"];
 
@@ -11,7 +11,7 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
   <title>${title}</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
-    // --- ADMIN: Toggle Inputs Function ---
+    // --- ADMIN HELPER ---
     function toggleProductInputs() {
         const typeEl = document.getElementById('productType');
         if (!typeEl) return;
@@ -31,18 +31,14 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
     }
 
     document.addEventListener("DOMContentLoaded", () => {
-        // Call toggle once on load for Admin Edit Page
+        // Init Admin Form
         toggleProductInputs();
 
         // Highlight Active Tab
         const path = window.location.pathname;
         const navIds = {
-            '/': 'nav-home', 
-            '/history': 'nav-history', 
-            '/profile': 'nav-profile', 
-            '/deposit': 'nav-profile', 
-            '/transfer': 'nav-profile', 
-            '/2d': 'nav-2d'
+            '/': 'nav-home', '/history': 'nav-history', '/profile': 'nav-profile', 
+            '/deposit': 'nav-profile', '/transfer': 'nav-profile', '/2d': 'nav-2d'
         };
         const activeId = navIds[path] || 'nav-home';
         const el = document.getElementById(activeId);
@@ -73,7 +69,7 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
             } catch { el.innerText = "?"; }
         });
 
-        // Page Loader Logic
+        // Page Loader
         const loader = document.getElementById('page-loader');
         document.querySelectorAll('a').forEach(link => {
             link.addEventListener('click', (e) => {
@@ -265,6 +261,7 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
   </style>
 </head>
 <body class="min-h-screen flex flex-col relative pb-24">
+  
   <div id="page-loader" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm"><div class="loader"></div></div>
 
   <nav class="glass sticky top-0 z-40 border-b border-slate-700">
@@ -277,6 +274,7 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
         </div>
         <span class="text-lg font-extrabold tracking-wide text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-400 drop-shadow-sm uppercase">KAIRIZY STORE</span>
       </a>
+      
       <div class="flex gap-3 items-center">
         ${user ? `
           <div class="flex items-center gap-3">
@@ -285,38 +283,106 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
                  <span class="balance-display text-green-400 font-bold">${user.balance.toLocaleString()} Ks</span>
                  <span class="bg-green-600 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">+</span>
               </a>
-              <a href="/profile" class="hidden md:block relative"><div class="w-9 h-9 rounded-md bg-slate-700 flex items-center justify-center text-xl border border-slate-500 shadow-sm hover:ring-2 ring-blue-500 transition">${user.avatar || "😎"}</div></a>
+              
+              <a href="/profile" class="hidden md:block relative">
+                <div class="w-9 h-9 rounded-md bg-slate-700 flex items-center justify-center text-xl border border-slate-500 shadow-sm hover:ring-2 ring-blue-500 transition">
+                    ${user.avatar || "😎"}
+                </div>
+              </a>
               ${user.isAdmin ? '<a href="/admin" class="hidden md:block text-yellow-400 hover:text-yellow-300 font-semibold text-sm">Admin</a>' : ''}
           </div>
-        ` : `<a href="/login" class="text-slate-300 hover:text-white text-sm font-medium">Login</a><a href="/register" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-bold shadow-lg shadow-blue-500/20 transition">Register</a>`}
+        ` : `
+          <a href="/login" class="text-slate-300 hover:text-white text-sm font-medium">Login</a>
+          <a href="/register" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-bold shadow-lg shadow-blue-500/20 transition">Register</a>
+        `}
       </div>
     </div>
   </nav>
 
   ${bannerText ? `<div class="bg-yellow-500/10 border-b border-yellow-500/20 text-yellow-200 py-2"><div class="marquee-container max-w-7xl mx-auto"><div class="marquee-content font-medium tracking-wide">📢 ${bannerText}</div></div></div>` : ''}
 
-  <main class="flex-grow container mx-auto px-4 py-6">${content}</main>
+  <main class="flex-grow container mx-auto px-4 py-6">
+    ${content}
+  </main>
 
   ${user ? `
   <div class="md:hidden fixed bottom-0 left-0 w-full z-[50] bottom-nav-container">
       <div class="flex justify-around items-center py-3">
-          <a href="/" id="nav-home" class="flex flex-col items-center gap-1 text-slate-500 hover:text-blue-400 transition w-full"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg><span class="text-[10px] font-medium">Home</span></a>
-          <a href="/2d" id="nav-2d" class="flex flex-col items-center gap-1 text-slate-500 hover:text-blue-400 transition w-full"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg><span class="text-[10px] font-medium">2D Live</span></a>
-          <a href="/history" id="nav-history" class="flex flex-col items-center gap-1 text-slate-500 hover:text-blue-400 transition w-full"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg><span class="text-[10px] font-medium">History</span></a>
-          <a href="/profile" id="nav-profile" class="flex flex-col items-center gap-1 text-slate-500 hover:text-blue-400 transition w-full"><div class="w-6 h-6 flex items-center justify-center text-lg leading-none">${user.avatar || "👤"}</div><span class="text-[10px] font-medium">Profile</span></a>
+          <a href="/" id="nav-home" class="flex flex-col items-center gap-1 text-slate-500 hover:text-blue-400 transition w-full">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
+              <span class="text-[10px] font-medium">Home</span>
+          </a>
+          <a href="/2d" id="nav-2d" class="flex flex-col items-center gap-1 text-slate-500 hover:text-blue-400 transition w-full">
+               <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+               <span class="text-[10px] font-medium">2D Live</span>
+          </a>
+          <a href="/history" id="nav-history" class="flex flex-col items-center gap-1 text-slate-500 hover:text-blue-400 transition w-full">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+              <span class="text-[10px] font-medium">History</span>
+          </a>
+          <a href="/profile" id="nav-profile" class="flex flex-col items-center gap-1 text-slate-500 hover:text-blue-400 transition w-full">
+              <div class="w-6 h-6 flex items-center justify-center text-lg leading-none">${user.avatar || "👤"}</div>
+              <span class="text-[10px] font-medium">Profile</span>
+          </a>
       </div>
-  </div>` : ''}
+  </div>
+  ` : ''}
 
-  <div id="confirmModal" class="hidden fixed inset-0 z-[60] flex items-center justify-center modal-backdrop px-4 modal-content"><div class="bg-[#1e293b] border border-slate-600 rounded-2xl p-6 max-w-sm w-full shadow-2xl transform transition-all scale-100 relative"><h3 class="text-xl font-bold text-white mb-2">Confirm Purchase?</h3><p class="text-slate-400 mb-4">Are you sure you want to buy <br><span id="confirmName" class="text-blue-400 font-bold"></span> for <span id="confirmPrice" class="text-green-400 font-bold"></span>?</p><div class="flex gap-3"><button onclick="closeConfirmModal()" class="flex-1 bg-slate-700 hover:bg-slate-600 text-white py-2 rounded-lg transition">Cancel</button><button id="confirmBtnAction" onclick="processPurchase()" class="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 rounded-lg transition shadow-lg shadow-blue-500/20">Yes, Buy</button></div></div></div>
-  <div id="successModal" class="hidden fixed inset-0 z-[60] flex items-center justify-center modal-backdrop px-4 modal-content"><div class="bg-[#1e293b] border border-green-500/30 rounded-2xl p-0 max-w-md w-full shadow-2xl overflow-hidden relative"><button onclick="closeSuccessModal()" class="absolute top-3 right-3 text-slate-400 hover:text-white text-xl">&times;</button><div class="bg-green-600/20 p-6 text-center border-b border-green-500/20"><div class="text-5xl mb-2">🎉</div><h2 class="text-2xl font-bold text-green-400">Successful!</h2></div><div class="p-6"><p class="text-slate-400 text-sm mb-2 uppercase tracking-wider font-semibold text-center">Your Code:</p><div class="code-box bg-slate-900 border-2 border-dashed border-slate-600 rounded-xl p-4 mb-6 relative"><pre id="purchasedCode" class="font-mono text-green-400 whitespace-pre-wrap break-all text-base leading-relaxed text-center"></pre></div><div class="flex flex-col gap-3"><button id="copyBtnModal" onclick="copyPurchasedCode()" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2 shadow-lg">Copy Code</button><button onclick="closeSuccessModal()" class="w-full bg-slate-700 hover:bg-slate-600 text-white py-3 rounded-xl transition">Close</button></div></div></div></div>
-  <div id="errorModal" class="hidden fixed inset-0 z-[60] flex items-center justify-center modal-backdrop px-4 modal-content"><div class="bg-[#1e293b] border border-red-500/30 rounded-2xl p-0 max-w-sm w-full shadow-2xl overflow-hidden relative"><button onclick="closeErrorModal()" class="absolute top-3 right-3 text-slate-400 hover:text-white text-xl font-bold z-10 w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10">&times;</button><div class="bg-red-600/20 p-6 text-center border-b border-red-500/20"><div class="text-5xl mb-2">⚠️</div><h2 class="text-2xl font-bold text-red-400">Oops!</h2></div><div class="p-6 text-center"><p id="errorMessage" class="text-slate-300 mb-6 text-lg font-medium">Something went wrong.</p><div id="errorBtnContainer"></div></div></div></div>
-  
-  <footer class="text-center text-slate-600 py-6 text-sm">&copy; 2025 Digital Shop System</footer>
+  <div id="confirmModal" class="hidden fixed inset-0 z-[60] flex items-center justify-center modal-backdrop px-4 modal-content">
+    <div class="bg-[#1e293b] border border-slate-600 rounded-2xl p-6 max-w-sm w-full shadow-2xl transform transition-all scale-100 relative">
+        <h3 class="text-xl font-bold text-white mb-2">Confirm Purchase?</h3>
+        <p class="text-slate-400 mb-4">Are you sure you want to buy <br><span id="confirmName" class="text-blue-400 font-bold"></span> for <span id="confirmPrice" class="text-green-400 font-bold"></span>?</p>
+        <div class="flex gap-3">
+            <button onclick="closeConfirmModal()" class="flex-1 bg-slate-700 hover:bg-slate-600 text-white py-2 rounded-lg transition">Cancel</button>
+            <button id="confirmBtnAction" onclick="processPurchase()" class="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 rounded-lg transition shadow-lg shadow-blue-500/20">Yes, Buy</button>
+        </div>
+    </div>
+  </div>
+
+  <div id="successModal" class="hidden fixed inset-0 z-[60] flex items-center justify-center modal-backdrop px-4 modal-content">
+    <div class="bg-[#1e293b] border border-green-500/30 rounded-2xl p-0 max-w-md w-full shadow-2xl overflow-hidden relative">
+        <button onclick="closeSuccessModal()" class="absolute top-3 right-3 text-slate-400 hover:text-white text-xl">&times;</button>
+        <div class="bg-green-600/20 p-6 text-center border-b border-green-500/20">
+            <div class="text-5xl mb-2">🎉</div>
+            <h2 class="text-2xl font-bold text-green-400">Successful!</h2>
+        </div>
+        <div class="p-6">
+            <p class="text-slate-400 text-sm mb-2 uppercase tracking-wider font-semibold text-center">Your Code:</p>
+            <div class="code-box bg-slate-900 border-2 border-dashed border-slate-600 rounded-xl p-4 mb-6 relative">
+                 <pre id="purchasedCode" class="font-mono text-green-400 whitespace-pre-wrap break-all text-base leading-relaxed text-center"></pre>
+            </div>
+            <div class="flex flex-col gap-3">
+                <button id="copyBtnModal" onclick="copyPurchasedCode()" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2 shadow-lg">Copy Code</button>
+                <button onclick="closeSuccessModal()" class="w-full bg-slate-700 hover:bg-slate-600 text-white py-3 rounded-xl transition">Close</button>
+            </div>
+        </div>
+    </div>
+  </div>
+
+  <div id="errorModal" class="hidden fixed inset-0 z-[60] flex items-center justify-center modal-backdrop px-4 modal-content">
+    <div class="bg-[#1e293b] border border-red-500/30 rounded-2xl p-0 max-w-sm w-full shadow-2xl overflow-hidden relative">
+        <button onclick="closeErrorModal()" class="absolute top-3 right-3 text-slate-400 hover:text-white text-xl font-bold z-10 w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10">&times;</button>
+        <div class="bg-red-600/20 p-6 text-center border-b border-red-500/20">
+            <div class="text-5xl mb-2">⚠️</div>
+            <h2 class="text-2xl font-bold text-red-400">Oops!</h2>
+        </div>
+        <div class="p-6 text-center">
+            <p id="errorMessage" class="text-slate-300 mb-6 text-lg font-medium">Something went wrong.</p>
+            <div id="errorBtnContainer"></div>
+        </div>
+    </div>
+  </div>
 </body>
 </html>
 `;
-
-export const ImageSlider = (images: string[]) => `<div class="relative w-full h-48 md:h-64 overflow-hidden rounded-2xl shadow-2xl mb-6 border border-slate-700"><div id="sliderTrack" class="flex h-full w-full">${images.map(img => `<div class="slide-item w-full h-full"><img src="${img}" class="w-full h-full object-cover"></div>`).join('')}</div><div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent pointer-events-none"></div></div>`;
+export const ImageSlider = (images: string[]) => `
+<div class="relative w-full h-48 md:h-64 overflow-hidden rounded-2xl shadow-2xl mb-6 border border-slate-700">
+    <div id="sliderTrack" class="flex h-full w-full">
+        ${images.map(img => `<div class="slide-item w-full h-full"><img src="${img}" class="w-full h-full object-cover"></div>`).join('')}
+    </div>
+    <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent pointer-events-none"></div>
+</div>
+`;
 
 export const AuthForm = (type: "Login" | "Register", error?: string) => `
 <div class="max-w-md mx-auto glass p-8 rounded-2xl shadow-2xl mt-10">
@@ -325,7 +391,7 @@ export const AuthForm = (type: "Login" | "Register", error?: string) => `
   <form method="POST" class="space-y-4">
     <div><label class="block text-sm font-medium text-slate-400 mb-1">Username</label><input type="text" name="username" required class="w-full bg-slate-800 border border-slate-600 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 outline-none text-white"></div>
     <div><label class="block text-sm font-medium text-slate-400 mb-1">Password</label><input type="password" name="password" required class="w-full bg-slate-800 border border-slate-600 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 outline-none text-white"></div>
-    ${type === 'Login' ? `<div class="flex justify-between items-center"><label class="flex items-center gap-2 text-slate-400 text-sm cursor-pointer"><input type="checkbox" name="remember" class="rounded bg-slate-800 border-slate-600 text-blue-600 focus:ring-blue-500">Remember me</label><a href="/forgot" class="text-sm text-blue-400 hover:text-blue-300">Forgot Password?</a></div>` : ''}
+    ${type === 'Login' ? `<div class="flex justify-between items-center"><label class="flex items-center gap-2 text-slate-400 text-sm cursor-pointer"><input type="checkbox" name="remember" class="rounded bg-slate-800 border-slate-600 text-blue-600 focus:ring-blue-500">Remember me (15 Days)</label><a href="/forgot" class="text-sm text-blue-400 hover:text-blue-300">Forgot Password?</a></div>` : ''}
     <button class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-lg transition shadow-lg shadow-blue-500/30">${type}</button>
   </form>
   <p class="mt-4 text-center text-slate-400 text-sm">${type === 'Login' ? 'Don\'t have an account? <a href="/register" class="text-blue-400">Register</a>' : 'Already have an account? <a href="/login" class="text-blue-400">Login</a>'}</p>
@@ -411,6 +477,7 @@ export const TwoDPage = (user: User, bets: TwoDBet[]) => {
             let statusColor = 'text-yellow-400';
             if(b.status === 'win') statusColor = 'text-green-400';
             if(b.status === 'lose') statusColor = 'text-red-400';
+            
             betHistoryHtml += `
             <div class="flex justify-between items-center p-3 border-b border-slate-700 last:border-0">
                 <div class="text-xs text-slate-400">${b.session} <br> ${new Date(b.timestamp).toLocaleTimeString("en-US", { timeZone: "Asia/Yangon" })}</div>
