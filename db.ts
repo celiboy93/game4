@@ -16,15 +16,14 @@ export interface Product {
   name: string;
   description: string;
   price: number;
-  type: "manual" | "api" | "shared"; // Added 'shared'
-  stock: string[]; // Used for 'manual'
-  apiUrl?: string; // Used for 'api'
+  type: "manual" | "api" | "shared";
+  stock: string[]; 
+  apiUrl?: string;
   imageUrl?: string;
   originalPrice?: number;
-  // New fields for Shared Type
-  sharedData?: string;      // The single key code
-  sharedCapacity?: number;  // Max users (e.g. 50)
-  sharedSold?: number;      // Current sold count
+  sharedData?: string;
+  sharedCapacity?: number;
+  sharedSold?: number;
 }
 
 export interface Transaction {
@@ -94,6 +93,9 @@ export async function getConfig() {
     const bonusAmount = await kv.get<number>(["config", "bonus_amount"]);
     const sliderImages = await kv.get<string[]>(["config", "slider_images"]);
     
+    // NEW: Manual 2D Result
+    const manual2d = await kv.get<string>(["config", "manual_2d"]);
+    
     return {
         banner: banner.value || "Welcome to GameStore!",
         payment: payment.value || "Kpay: 09xxxxxx\nWave: 09xxxxxx",
@@ -102,6 +104,7 @@ export async function getConfig() {
         noReg: noReg.value ?? false,
         bonusActive: bonusActive.value ?? false,
         bonusAmount: bonusAmount.value || 0,
+        manual2d: manual2d.value || "", // Empty means use API
         sliderImages: sliderImages.value || [
             "https://img.freepik.com/free-vector/gaming-banner-template-with-geometric-shapes_23-2148795457.jpg",
             "https://t3.ftcdn.net/jpg/02/85/90/44/360_F_285904463_52tKiXp59JoHuAAxHRn3jKk8qI2o56q7.jpg",
