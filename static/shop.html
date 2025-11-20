@@ -9,23 +9,11 @@
         .section { background: #1e1e1e; padding: 20px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #333; }
         .section h2 { color: #ffd700; border-bottom: 1px solid #444; padding-bottom: 10px; }
         .action-btn { width: 100%; padding: 15px; margin-top: 15px; font-size: 18px; font-weight: bold; }
-        .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px; }
         .inp-field, select { width: 100%; padding: 10px; margin: 5px 0; background: #333; border: 1px solid #555; color: white; border-radius: 5px; box-sizing: border-box; }
         
         /* Modal Styles */
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 999; align-items: center; justify-content: center; }
-        .modal-content { background: #222; padding: 25px; width: 90%; max-width: 400px; border-radius: 10px; max-height: 80vh; overflow-y: auto; text-align: center; }
-        .success-box { background: #1a1a1a; border: 2px solid #4CAF50; box-shadow: 0 0 20px rgba(76, 175, 80, 0.4); padding: 30px 20px; }
-        .success-icon { font-size: 50px; color: #ffd700; margin-bottom: 15px; } 
-        .code-display { background: #000; color: #0f0; padding: 10px; border-radius: 5px; margin: 15px 0; font-family: monospace; word-break: break-all; border: 1px dashed #4CAF50; }
-        .copy-btn { background: #2196F3; color: white; border: none; padding: 10px 0; width: 100%; margin-top: 10px; border-radius: 5px; cursor: pointer; font-weight: bold; }
-        .close-btn { background: #555; color: white; border: none; padding: 10px 0; width: 100%; margin-top: 10px; border-radius: 5px; cursor: pointer; }
-        
-        /* History Table Styles */
-        .history-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        .history-table th, .history-table td { border: 1px solid #333; padding: 8px; text-align: left; font-size: 12px; }
-        .history-table th { background: #444; color: #ffd700; }
-        .history-code { font-family: monospace; color: #0f0; }
+        .result-code { background: #000; color: #0f0; padding: 10px; border-radius: 5px; margin: 15px 0; font-family: monospace; word-break: break-all; }
 
         /* Admin Icon in Header */
         #adminIcon { font-size: 20px; cursor: pointer; color: #ff6f00; margin-right: 10px; display: none; }
@@ -36,8 +24,8 @@
     <header>
         <div class="logo">🔑 CODE GEN SHOP</div>
         <div style="display: flex; align-items: center;">
-            <span id="adminIcon">⚙️</span>
-            <div class="balance" id="userBalance" onclick="location.href='/profile'" style="cursor: pointer;">Loading...</div>
+            <span id="adminIcon" onclick="location.href='/admin'">⚙️</span>
+            <div class="balance" id="userBalance">Loading...</div>
         </div>
     </header>
 
@@ -52,32 +40,6 @@
             <button id="generateBtn" class="action-btn" style="background: #4CAF50;">GENERATE CODE NOW</button>
         </div>
         
-        <div id="adminArea" style="display: none;">
-            <h2 style="color:red;">ADMIN TOOLS</h2>
-            <div class="section" style="border-color: #0f0;">
-                <h3 style="color:#0f0; margin-top:0;">TOP UP USER</h3>
-                <form id="topupForm">
-                    <input type="text" id="topupUser" class="inp-field" placeholder="Username">
-                    <input type="number" id="topupAmount" class="inp-field" placeholder="Amount (MMK)">
-                    <button type="submit" style="background: #009688;">ADD MONEY</button>
-                </form>
-            </div>
-            <div class="section">
-                <h3 style="color:red; margin-top:0;">ADD NEW STOCK / TEMPLATE</h3>
-                <form id="addStockForm">
-                    <input type="text" id="stockName" class="inp-field" placeholder="Item Name (e.g. API Key)" required>
-                    <input type="number" id="stockPrice" class="inp-field" placeholder="Price (e.g. 4000)" required>
-                    <input type="url" id="imageUrl" class="inp-field" placeholder="Image URL (e.g. https://link.com/logo.png)">
-                    <select id="stockSource" class="inp-field">
-                        <option value="internal">Internal (Codes stored here)</option>
-                        <option value="external">External (API managed)</option>
-                    </select>
-                    <textarea id="stockCodes" rows="4" class="inp-field" placeholder="Codes (one per line). Leave empty if External Source."></textarea>
-                    <button type="submit" class="action-btn" style="background: #2196F3;">ADD STOCK</button>
-                </form>
-            </div>
-        </div>
-
         <div class="section">
             <h2>CURRENT ITEM STOCK</h2>
             <button onclick="loadItemsAndUI()" style="width: 100%; background: #2196F3; margin-bottom: 10px; color:white;">REFRESH ITEMS</button>
@@ -85,10 +47,8 @@
         </div>
 
 
-        <div class="grid-3" style="margin-top: 20px;">
-            <button onclick="showHistory()" style="background: #2196F3;">📜 History</button>
-            <button onclick="location.href='/profile'" style="background: #673AB7;">⚙️ Profile</button>
-            <button onclick="location.href='/api/auth/logout'" style="background:#d32f2f;">Logout</button>
+        <div style="margin-top: 20px; text-align: center;">
+            <button onclick="location.href='/api/auth/logout'" style="background:#d32f2f; color:white; padding: 10px; width: 100px;">Logout</button>
         </div>
 
     </div>
@@ -96,16 +56,10 @@
     <div id="successModal" class="modal">
         <div class="modal-content"><h2 style="color: #0f0;">SUCCESS!</h2><p>Your new code is:</p><div id="purchasedCodeDisplay" class="result-code"></div><button class="copy-btn" onclick="copyCode()">COPY CODE</button><button class="close-btn" onclick="closeModal('successModal')">CLOSE</button></div>
     </div>
-    <div id="historyModal" class="modal">
-        <div class="modal-content"><h2 style="color: #ffd700; margin-top: 0;">MY ORDERS</h2><div id="historyList">Loading...</div><button class="close-btn" onclick="closeModal('historyModal')">CLOSE</button></div>
-    </div>
     
     <script>
         
         let allItems = [];
-
-        function toggleAdminPanel() { /* ... */ } // Logic remains unchanged
-        function showAdminTools(isAdmin) { /* ... */ } // Logic remains unchanged
 
         async function loadItemsAndUI() {
             const itemRes = await fetch('/api/items');
@@ -149,7 +103,9 @@
             
             document.getElementById('userBalance').innerHTML = `${user.username.toUpperCase()} | <span style="color:#0f0">${user.balance} MMK</span>`;
             
-            showAdminTools(user.username === 'admin');
+            if (user.username === 'admin') {
+                document.getElementById('adminIcon').style.display = 'block';
+            }
         }
 
         // --- Utility & Modal Functions ---
@@ -157,12 +113,16 @@
         function closeModal(id) { 
             document.getElementById(id).style.display = 'none';
         }
-        function copyCode() { /* ... */ }
-        async function showHistory() { /* ... */ }
-
+        function copyCode() { 
+            const code = document.getElementById('purchasedCodeDisplay').textContent;
+            navigator.clipboard.writeText(code).then(() => {
+                alert('Code copied!');
+            });
+        }
+        
         // --- Event Handlers ---
         
-        document.getElementById('adminIcon').addEventListener('click', toggleAdminPanel);
+        document.getElementById('adminIcon').addEventListener('click', () => { location.href = '/admin'; });
 
         document.getElementById('generateBtn').addEventListener('click', async () => {
             const codeType = document.getElementById('codeType').value;
@@ -183,37 +143,6 @@
             }
         });
         
-        document.getElementById('addStockForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const name = document.getElementById('stockName').value;
-            const price = document.getElementById('stockPrice').value;
-            const imageUrl = document.getElementById('imageUrl').value;
-            const source = document.getElementById('stockSource').value;
-            
-            const data = {
-                category: document.getElementById('stockCategory').value,
-                name: name,
-                price: price + " MMK",
-                imageUrl: imageUrl, 
-                source: source,
-                stock: document.getElementById('stockCodes').value.split('\n').filter(s => s.trim() !== "")
-            };
-
-            const res = await fetch('/api/add-item', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
-            if (res.ok) {
-                alert(`Stock Added! Source: ${source.toUpperCase()}`);
-            } else {
-                alert("Failed to add stock.");
-            }
-            e.target.reset();
-            loadItemsAndUI(); // Refresh the list manually after successful add
-        });
-
-        document.getElementById('topupForm').addEventListener('submit', async (e) => { /* ... topup logic ... */ });
-        document.getElementById('apiUrlForm').addEventListener('submit', async (e) => { /* ... api url save logic ... */ });
-        
-        document.getElementById('topupUser').value = 'admin'; 
-
         init();
     </script>
 </body>
