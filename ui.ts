@@ -48,11 +48,9 @@ export const Layout = (title: string, content: string, user?: User) => `
     </div>
     ${user ? `<div class="md:hidden px-4 pb-2 text-center border-t border-slate-700 pt-2 text-slate-400">Balance: <span class="text-green-400 font-bold">${user.balance.toLocaleString()} Ks</span></div>` : ''}
   </nav>
-
   <main class="flex-grow container mx-auto px-4 py-8">
     ${content}
   </main>
-
   <footer class="text-center text-slate-600 py-6 text-sm">
     &copy; 2025 Digital Shop System
   </footer>
@@ -65,14 +63,8 @@ export const AuthForm = (type: "Login" | "Register", error?: string) => `
   <h2 class="text-3xl font-bold text-center mb-6 text-white">${type}</h2>
   ${error ? `<div class="bg-red-500/20 border border-red-500 text-red-200 p-3 rounded mb-4 text-center">${error}</div>` : ''}
   <form method="POST" class="space-y-4">
-    <div>
-      <label class="block text-sm font-medium text-slate-400 mb-1">Username</label>
-      <input type="text" name="username" required class="w-full bg-slate-800 border border-slate-600 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 outline-none text-white">
-    </div>
-    <div>
-      <label class="block text-sm font-medium text-slate-400 mb-1">Password</label>
-      <input type="password" name="password" required class="w-full bg-slate-800 border border-slate-600 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 outline-none text-white">
-    </div>
+    <div><label class="block text-sm font-medium text-slate-400 mb-1">Username</label><input type="text" name="username" required class="w-full bg-slate-800 border border-slate-600 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 outline-none text-white"></div>
+    <div><label class="block text-sm font-medium text-slate-400 mb-1">Password</label><input type="password" name="password" required class="w-full bg-slate-800 border border-slate-600 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 outline-none text-white"></div>
     <button class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-lg transition shadow-lg shadow-blue-500/30">${type}</button>
   </form>
   <p class="mt-4 text-center text-slate-400 text-sm">
@@ -81,15 +73,18 @@ export const AuthForm = (type: "Login" | "Register", error?: string) => `
 </div>
 `;
 
-export const ProductCard = (p: Product) => {
-  const hasStock = p.type === 'api' || (p.stock && p.stock.length > 0);
+// Updated Product Card to accept dynamic Stock Count
+export const ProductCard = (p: Product, stockCount: number | string) => {
+  const hasStock = stockCount !== 0 && stockCount !== "0";
+  const stockDisplay = p.type === 'api' ? `API Stock: ${stockCount}` : `Stock: ${stockCount}`;
+  
   return `
   <div class="glass rounded-xl overflow-hidden hover:shadow-2xl hover:shadow-blue-500/10 transition transform hover:-translate-y-1 duration-300 flex flex-col h-full">
     <div class="p-5 flex-grow">
       <div class="flex justify-between items-start mb-2">
         <h3 class="text-xl font-bold text-white truncate">${p.name}</h3>
         <span class="text-xs px-2 py-1 rounded ${hasStock ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">
-          ${p.type === 'api' ? 'Instant' : `Stock: ${p.stock.length}`}
+          ${stockDisplay}
         </span>
       </div>
       <p class="text-slate-400 text-sm mb-4 line-clamp-2">${p.description}</p>
@@ -107,7 +102,6 @@ export const ProductCard = (p: Product) => {
   `;
 };
 
-// New: History Table View
 export const HistoryTable = (transactions: Transaction[], nextCursor: string | null) => {
     let rows = "";
     if (transactions.length === 0) {
@@ -116,43 +110,11 @@ export const HistoryTable = (transactions: Transaction[], nextCursor: string | n
         rows = transactions.map(t => `
             <tr class="border-b border-slate-700 hover:bg-slate-800/50 transition">
                 <td class="p-4 text-sm text-slate-400">${new Date(t.date).toLocaleString()}</td>
-                <td class="p-4">
-                    <span class="px-2 py-1 rounded text-xs font-bold ${t.type === 'purchase' ? 'bg-blue-500/20 text-blue-400' : 'bg-green-500/20 text-green-400'}">
-                        ${t.type.toUpperCase()}
-                    </span>
-                </td>
-                <td class="p-4 font-medium text-white">
-                    ${t.itemName}
-                    ${t.type === 'purchase' ? `<div class="text-xs text-slate-500 mt-1 font-mono truncate w-32 md:w-64">${t.detail.substring(0, 30)}...</div>` : ''}
-                </td>
-                <td class="p-4 text-right ${t.type === 'purchase' ? 'text-red-400' : 'text-green-400'} font-bold">
-                    ${t.type === 'purchase' ? '-' : '+'}${t.amount.toLocaleString()} Ks
-                </td>
+                <td class="p-4"><span class="px-2 py-1 rounded text-xs font-bold ${t.type === 'purchase' ? 'bg-blue-500/20 text-blue-400' : 'bg-green-500/20 text-green-400'}">${t.type.toUpperCase()}</span></td>
+                <td class="p-4 font-medium text-white">${t.itemName} ${t.type === 'purchase' ? `<div class="text-xs text-slate-500 mt-1 font-mono truncate w-32 md:w-64">${t.detail.substring(0, 30)}...</div>` : ''}</td>
+                <td class="p-4 text-right ${t.type === 'purchase' ? 'text-red-400' : 'text-green-400'} font-bold">${t.type === 'purchase' ? '-' : '+'}${t.amount.toLocaleString()} Ks</td>
             </tr>
         `).join("");
     }
-
-    return `
-        <div class="glass rounded-xl overflow-hidden">
-            <div class="overflow-x-auto">
-                <table class="w-full text-left">
-                    <thead class="bg-slate-800 text-slate-300 uppercase text-xs">
-                        <tr>
-                            <th class="p-4">Date</th>
-                            <th class="p-4">Type</th>
-                            <th class="p-4">Description</th>
-                            <th class="p-4 text-right">Amount</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-700">
-                        ${rows}
-                    </tbody>
-                </table>
-            </div>
-            ${nextCursor ? `
-            <div class="p-4 text-center border-t border-slate-700">
-                <a href="/history?cursor=${nextCursor}" class="inline-block bg-slate-700 hover:bg-slate-600 text-white px-6 py-2 rounded transition">Load Next 10 Entries</a>
-            </div>` : ''}
-        </div>
-    `;
+    return `<div class="glass rounded-xl overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-left"><thead class="bg-slate-800 text-slate-300 uppercase text-xs"><tr><th class="p-4">Date</th><th class="p-4">Type</th><th class="p-4">Description</th><th class="p-4 text-right">Amount</th></tr></thead><tbody class="divide-y divide-slate-700">${rows}</tbody></table></div>${nextCursor ? `<div class="p-4 text-center border-t border-slate-700"><a href="/history?cursor=${nextCursor}" class="inline-block bg-slate-700 hover:bg-slate-600 text-white px-6 py-2 rounded transition">Load Next 10 Entries</a></div>` : ''}</div>`;
 };
