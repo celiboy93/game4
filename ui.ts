@@ -1,4 +1,4 @@
-import { User, Product, Transaction, GlobalSale } from "./db.ts";
+import { User, Product, Transaction } from "./db.ts";
 
 const AVATARS = ["😎", "👾", "🤖", "👻", "👽", "🐯", "🐼", "🦊", "🦁", "🐷", "🐸", "💀"];
 
@@ -11,6 +11,63 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
   <title>${title}</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
+    // --- Wait for Page Load to finish ---
+    window.addEventListener('load', () => {
+        const loader = document.getElementById('page-loader');
+        // Fade out effect
+        loader.classList.add('opacity-0');
+        setTimeout(() => {
+            loader.classList.add('hidden');
+        }, 300);
+    });
+
+    // --- Show Loader on Navigation ---
+    document.addEventListener("DOMContentLoaded", () => {
+        const loader = document.getElementById('page-loader');
+        
+        // 1. API Stock Lazy Load
+        const apiProducts = document.querySelectorAll(".api-stock-loader");
+        apiProducts.forEach(async (el) => {
+            const id = el.dataset.id;
+            try {
+                const res = await fetch("/check-stock?id=" + id);
+                const text = await res.text();
+                el.innerText = text;
+                if(text.includes("0") || text === "?") { disableProductCard(id); }
+            } catch { el.innerText = "?"; }
+        });
+
+        // 2. Link Clicks
+        document.querySelectorAll('a').forEach(link => {
+            link.addEventListener('click', (e) => {
+                const href = link.getAttribute('href');
+                // Don't show loader for external links or anchor tags
+                if (href && !href.startsWith('#') && !href.startsWith('javascript') && !e.ctrlKey && !e.metaKey && !href.startsWith('http')) {
+                    loader.classList.remove('hidden');
+                    loader.classList.remove('opacity-0');
+                }
+            });
+        });
+
+        // 3. Form Submits
+        document.querySelectorAll('form').forEach(form => {
+            form.addEventListener('submit', () => {
+                if(!form.closest('.modal-content')) { 
+                    loader.classList.remove('hidden');
+                    loader.classList.remove('opacity-0');
+                }
+            });
+        });
+    });
+
+    // Back Button Fix (bfcache)
+    window.addEventListener('pageshow', (event) => {
+        if (event.persisted) { 
+            const loader = document.getElementById('page-loader');
+            loader.classList.add('hidden'); 
+        }
+    });
+
     function copyToClipboard(text, btnId = 'copyBtn') {
         navigator.clipboard.writeText(text).then(() => {
             const btn = document.getElementById(btnId);
@@ -42,38 +99,6 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
             node.style.display = name.includes(filter) ? "flex" : "none";
         });
     }
-
-    document.addEventListener("DOMContentLoaded", () => {
-        const apiProducts = document.querySelectorAll(".api-stock-loader");
-        apiProducts.forEach(async (el) => {
-            const id = el.dataset.id;
-            try {
-                const res = await fetch("/check-stock?id=" + id);
-                const text = await res.text();
-                el.innerText = text;
-                if(text.includes("0") || text === "?") { disableProductCard(id); }
-            } catch { el.innerText = "?"; }
-        });
-
-        const loader = document.getElementById('page-loader');
-        document.querySelectorAll('a').forEach(link => {
-            link.addEventListener('click', (e) => {
-                const href = link.getAttribute('href');
-                if (href && !href.startsWith('#') && !href.startsWith('javascript') && !e.ctrlKey && !e.metaKey) {
-                    loader.classList.remove('hidden');
-                }
-            });
-        });
-        document.querySelectorAll('form').forEach(form => {
-            form.addEventListener('submit', () => {
-                if(!form.closest('.modal-content')) { loader.classList.remove('hidden'); }
-            });
-        });
-    });
-    
-    window.addEventListener('pageshow', (event) => {
-        if (event.persisted) { document.getElementById('page-loader').classList.add('hidden'); }
-    });
 
     function disableProductCard(id) {
         const btn = document.getElementById("btn-" + id);
@@ -153,13 +178,19 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
     .marquee-container { overflow: hidden; white-space: nowrap; position: relative; }
     .marquee-content { display: inline-block; animation: marquee 15s linear infinite; padding-left: 100%; }
     @keyframes marquee { 0% { transform: translate(0, 0); } 100% { transform: translate(-100%, 0); } }
-    .loader { border: 4px solid rgba(255,255,255,0.1); width: 40px; height: 40px; border-radius: 50%; border-left-color: #3b82f6; animation: spin 1s linear infinite; }
+    /* Enhanced Loader */
+    .loader { border: 4px solid rgba(59, 130, 246, 0.2); width: 45px; height: 45px; border-radius: 50%; border-left-color: #3b82f6; animation: spin 0.8s linear infinite; box-shadow: 0 0 15px rgba(59, 130, 246, 0.5); }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
   </style>
 </head>
 <body class="min-h-screen flex flex-col relative">
   
-  <div id="page-loader" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm"><div class="loader"></div></div>
+  <div id="page-loader" class="fixed inset-0 z-[60] flex items-center justify-center bg-[#0f172a] transition-opacity duration-300">
+      <div class="flex flex-col items-center">
+          <div class="loader mb-4"></div>
+          <div class="text-blue-400 font-bold text-sm animate-pulse">LOADING...</div>
+      </div>
+  </div>
 
   <nav class="glass sticky top-0 z-40 border-b border-slate-700">
     <div class="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
@@ -242,8 +273,6 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
 </html>
 `;
 
-// UI COMPONENTS
-
 export const AuthForm = (type: "Login" | "Register", error?: string) => `
 <div class="max-w-md mx-auto glass p-8 rounded-2xl shadow-2xl">
   <h2 class="text-3xl font-bold text-center mb-6 text-white">${type}</h2>
@@ -265,11 +294,32 @@ export const ProductCard = (p: Product) => {
   const manualStock = p.stock ? p.stock.length : 0;
   const stockDisplay = isManual ? `Stock: ${manualStock}` : `Stock: <span class="api-stock-loader animate-pulse" data-id="${p.id}">...</span>`;
   const isDisabled = isManual && manualStock === 0;
+  
   const imageHtml = p.imageUrl 
-      ? `<img src="${p.imageUrl}" class="w-24 h-24 rounded-lg object-cover border border-slate-700 shadow-md" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="w-24 h-24 rounded-lg bg-slate-800 items-center justify-center text-3xl hidden border border-slate-700 shadow-md">🎮</div>`
+      ? `<img src="${p.imageUrl}" class="w-24 h-24 rounded-lg object-cover border border-slate-700 shadow-md" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+         <div class="w-24 h-24 rounded-lg bg-slate-800 items-center justify-center text-3xl hidden border border-slate-700 shadow-md">🎮</div>`
       : `<div class="w-24 h-24 rounded-lg bg-slate-800 flex items-center justify-center text-3xl border border-slate-700 shadow-md">🎮</div>`;
 
-  return `<div class="product-card glass rounded-xl overflow-hidden hover:shadow-2xl hover:shadow-blue-500/10 transition transform hover:-translate-y-1 duration-300 p-4" data-name="${p.name}"><div class="flex gap-4"><div class="flex-shrink-0">${imageHtml}</div><div class="flex-grow flex flex-col justify-between"><div><div class="flex justify-between items-start"><h3 class="text-lg font-bold text-white leading-tight">${p.name}</h3><span id="badge-${p.id}" class="text-[10px] px-2 py-1 rounded whitespace-nowrap ${!isDisabled ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">${stockDisplay}</span></div><p class="text-slate-400 text-xs mt-1 line-clamp-2">${p.description}</p></div><div class="mt-2"><div class="text-xl font-bold text-blue-400 mb-2">${p.price.toLocaleString()} Ks</div><button id="btn-${p.id}" ${isDisabled ? 'disabled' : `onclick="confirmBuy('${p.id}', '${p.name}', '${p.price.toLocaleString()}')"`} class="w-full text-sm ${!isDisabled ? 'bg-blue-600 hover:bg-blue-500' : 'bg-slate-700 cursor-not-allowed'} text-white font-bold py-2 rounded-lg transition flex justify-center items-center gap-2">${isDisabled ? 'Out of Stock' : '⚡ Buy Now'}</button></div></div></div></div>`;
+  return `
+  <div class="product-card glass rounded-xl overflow-hidden hover:shadow-2xl hover:shadow-blue-500/10 transition transform hover:-translate-y-1 duration-300 p-4" data-name="${p.name}">
+    <div class="flex gap-4">
+        <div class="flex-shrink-0">${imageHtml}</div>
+        <div class="flex-grow flex flex-col justify-between">
+            <div>
+                <div class="flex justify-between items-start">
+                    <h3 class="text-lg font-bold text-white leading-tight">${p.name}</h3>
+                    <span id="badge-${p.id}" class="text-[10px] px-2 py-1 rounded whitespace-nowrap ${!isDisabled ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">${stockDisplay}</span>
+                </div>
+                <p class="text-slate-400 text-xs mt-1 line-clamp-2">${p.description}</p>
+            </div>
+            <div class="mt-2">
+                <div class="text-xl font-bold text-blue-400 mb-2">${p.price.toLocaleString()} Ks</div>
+                <button id="btn-${p.id}" ${isDisabled ? 'disabled' : `onclick="confirmBuy('${p.id}', '${p.name}', '${p.price.toLocaleString()}')"`} class="w-full text-sm ${!isDisabled ? 'bg-blue-600 hover:bg-blue-500' : 'bg-slate-700 cursor-not-allowed'} text-white font-bold py-2 rounded-lg transition flex justify-center items-center gap-2">${isDisabled ? 'Out of Stock' : '⚡ Buy Now'}</button>
+            </div>
+        </div>
+    </div>
+  </div>
+  `;
 };
 
 export const HistoryTable = (transactions: Transaction[], nextCursor: string | null, activeTab: string) => {
