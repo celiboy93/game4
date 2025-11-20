@@ -599,3 +599,4 @@ export const TwoDPage = (user: User, bets: TwoDBet[]) => {
         </div>
     </div>
 `, user);
+}
