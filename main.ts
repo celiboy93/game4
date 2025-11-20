@@ -40,13 +40,7 @@ async function getSessionUser(c: any) {
 app.get("/", async (c) => {
   const user = await getSessionUser(c);
   const config = await getConfig();
-
-  // MAINTENANCE CHECK
-  // If maintenance is ON and user is NOT admin, show maintenance page
-  if (config.maintenance && (!user || !user.isAdmin)) {
-      return c.html(MaintenancePage());
-  }
-
+  if (config.maintenance && (!user || !user.isAdmin)) return c.html(MaintenancePage());
   if (!user) return c.redirect("/login");
   
   const iter = kv.list<Product>({ prefix: ["products"] });
@@ -68,6 +62,81 @@ app.get("/", async (c) => {
   `, user, config.banner));
 });
 
+// --- Buy Route (Updated for JSON Response) ---
+app.post("/buy", async (c) => {
+  const user = await getSessionUser(c);
+  if (!user) return c.json({ success: false, message: "Unauthorized" }, 401);
+  
+  const config = await getConfig();
+  if (config.maintenance && !user.isAdmin) return c.json({ success: false, message: "Maintenance Mode" });
+
+  // Parse JSON body instead of Form
+  const body = await c.req.json(); 
+  const id = body.id;
+  const product = await getProduct(id as string);
+
+  if (!product) return c.json({ success: false, message: "Product not found" });
+  if (user.balance < product.price) {
+    return c.json({ success: false, message: "Insufficient Balance" });
+  }
+
+  let finalDisplayCode = "";
+  let soldKeyIdentifier = null; 
+  
+  if (product.type === "manual") {
+    if (!product.stock.length) return c.json({ success: false, message: "Out of Stock" });
+    finalDisplayCode = product.stock[0];
+    const res = await kv.atomic()
+        .check(await kv.get(["products", product.id]))
+        .check(await kv.get(["users", user.username]))
+        .set(["products", product.id], { ...product, stock: product.stock.slice(1) })
+        .set(["users", user.username], { ...user, balance: user.balance - product.price })
+        .commit();
+    if(!res.ok) return c.json({ success: false, message: "Transaction Failed. Try Again." });
+  } else {
+    // API Logic
+    try {
+      const res = await fetch(product.apiUrl!);
+      const text = await res.text();
+      let json;
+      try {
+        json = JSON.parse(text);
+        const items = Array.isArray(json) ? json : [json];
+        let validItem = null;
+        for (const item of items) {
+            const expDate = new Date(item.expiration_date);
+            const now = new Date();
+            now.setHours(0,0,0,0); 
+            if (expDate < now) continue;
+            if (item.android_id_1 && item.android_id_1.trim() !== "" && item.android_id_2 && item.android_id_2.trim() !== "") continue;
+            if (await isKeySold(item.key)) continue;
+            validItem = item;
+            break;
+        }
+        if (!validItem) return c.json({ success: false, message: "Stock Unavailable from API" });
+        finalDisplayCode = `Key: ${validItem.key}\nExpires: ${validItem.expiration_date}`;
+        soldKeyIdentifier = validItem.key;
+      } catch (e) { finalDisplayCode = text; }
+
+      const resKv = await kv.atomic()
+        .check(await kv.get(["users", user.username]))
+        .set(["users", user.username], { ...user, balance: user.balance - product.price })
+        .commit();
+      if(!resKv.ok) throw new Error();
+      if (soldKeyIdentifier) await markKeyAsSold(soldKeyIdentifier, user.username);
+    } catch { return c.json({ success: false, message: "API Connection Error" }); }
+  }
+
+  await addHistory(user.username, "purchase", product.name, product.price, finalDisplayCode);
+  
+  return c.json({ 
+      success: true, 
+      code: finalDisplayCode, 
+      newBalance: user.balance - product.price 
+  });
+});
+
+// Other routes remain mostly the same
 app.get("/deposit", async (c) => {
     const user = await getSessionUser(c);
     if (!user) return c.redirect("/login");
@@ -131,7 +200,6 @@ app.get("/register", async (c) => {
 app.post("/register", async (c) => {
   const config = await getConfig();
   if (config.noReg) return c.html(Layout("Registration Closed", `<div class="text-center py-10 text-red-400 text-xl font-bold">⚠️ New registrations are currently disabled.</div>`));
-  
   const { username, password } = await c.req.parseBody();
   const existing = await getUser(username as string);
   if (existing) return c.html(Layout("Register", AuthForm("Register", "Username already taken")));
@@ -142,62 +210,6 @@ app.post("/register", async (c) => {
   return c.redirect("/");
 });
 app.get("/logout", (c) => { deleteCookie(c, "session_user"); return c.redirect("/login"); });
-
-app.post("/buy", async (c) => {
-  const user = await getSessionUser(c);
-  if (!user) return c.redirect("/login");
-  const config = await getConfig();
-  if (config.maintenance && !user.isAdmin) return c.html(MaintenancePage());
-
-  const { id } = await c.req.parseBody();
-  const product = await getProduct(id as string);
-  if (!product) return c.redirect("/");
-  if (user.balance < product.price) {
-    return c.html(Layout("Error", `<div class="max-w-md mx-auto glass p-8 rounded-xl text-center"><h2 class="text-red-400 text-xl font-bold mb-4">Insufficient Balance</h2><a href="/deposit" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-500">Top Up Now</a></div>`, user));
-  }
-  let finalDisplayCode = "";
-  let soldKeyIdentifier = null; 
-  if (product.type === "manual") {
-    if (!product.stock.length) return c.html(Layout("Error", "Out of Stock", user));
-    finalDisplayCode = product.stock[0];
-    const res = await kv.atomic().check(await kv.get(["products", product.id])).check(await kv.get(["users", user.username])).set(["products", product.id], { ...product, stock: product.stock.slice(1) }).set(["users", user.username], { ...user, balance: user.balance - product.price }).commit();
-    if(!res.ok) return c.html(Layout("Error", "Transaction Failed. Try Again.", user));
-  } else {
-    try {
-      const res = await fetch(product.apiUrl!);
-      const text = await res.text();
-      let json;
-      try {
-        json = JSON.parse(text);
-        const items = Array.isArray(json) ? json : [json];
-        let validItem = null;
-        for (const item of items) {
-            const expDate = new Date(item.expiration_date);
-            const now = new Date();
-            now.setHours(0,0,0,0); 
-            if (expDate < now) continue;
-            if (item.android_id_1 && item.android_id_1.trim() !== "" && item.android_id_2 && item.android_id_2.trim() !== "") continue;
-            if (await isKeySold(item.key)) continue;
-            validItem = item;
-            break;
-        }
-        if (!validItem) return c.html(Layout("Error", `<div class="max-w-md mx-auto glass p-8 rounded-xl text-center"><h2 class="text-red-400 text-xl font-bold mb-4">Stock Unavailable</h2><p class="text-slate-300">All valid keys have been sold or are full.</p><a href="/" class="text-blue-400 mt-4 inline-block">Back</a></div>`, user));
-        finalDisplayCode = `Key: ${validItem.key}\nExpires: ${validItem.expiration_date}`;
-        soldKeyIdentifier = validItem.key;
-      } catch (e) { finalDisplayCode = text; }
-      const resKv = await kv.atomic().check(await kv.get(["users", user.username])).set(["users", user.username], { ...user, balance: user.balance - product.price }).commit();
-      if(!resKv.ok) throw new Error();
-      if (soldKeyIdentifier) await markKeyAsSold(soldKeyIdentifier, user.username);
-    } catch { return c.html(Layout("Error", "API Error", user)); }
-  }
-  await addHistory(user.username, "purchase", product.name, product.price, finalDisplayCode);
-  return c.html(Layout("Success", `
-    <div class="max-w-lg mx-auto glass rounded-2xl overflow-hidden border border-green-500/30 shadow-2xl shadow-green-500/10">
-      <div class="bg-green-600/20 p-6 text-center border-b border-green-500/30"><div class="text-5xl mb-4">🎉</div><h2 class="text-2xl font-bold text-green-400 mb-1">Purchase Successful!</h2></div>
-      <div class="p-8 bg-[#0b1120]"><p class="text-slate-400 text-sm mb-3 uppercase tracking-wider font-semibold">Your Item:</p><div class="code-box bg-slate-900 border-2 border-dashed border-slate-600 rounded-xl p-4 relative group"><pre class="font-mono text-green-400 whitespace-pre-wrap break-all text-lg leading-relaxed shadow-inner">${finalDisplayCode}</pre></div><div class="mt-6 flex gap-3"><button id="copyBtn" onclick="copyToClipboard(\`${finalDisplayCode.replace(/`/g, "\\`")}\`)" class="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20">Copy Code</button><a href="/" class="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 rounded-xl text-center transition border border-slate-600">Return</a></div></div>
-    </div>
-  `, { ...user, balance: user.balance - product.price }));
-});
 
 // Admin Routes
 app.get("/admin", async (c) => {
@@ -212,7 +224,6 @@ app.get("/admin", async (c) => {
   const userIter = kv.list<User>({ prefix: ["users"] });
   let userListHtml = "";
   for await (const { value: u } of userIter) { if (u.username !== user.username) { userListHtml += `<div class="flex justify-between items-center border-b border-slate-700 py-2 text-sm"><span class="text-slate-300 select-all cursor-pointer" onclick="document.querySelector('input[name=username]').value = '${u.username}'">${u.username}</span><span class="text-green-400">${u.balance.toLocaleString()} Ks</span></div>`; } }
-
   const config = await getConfig();
 
   return c.html(Layout("Admin", `
@@ -222,24 +233,17 @@ app.get("/admin", async (c) => {
             <h3 class="text-xl font-bold text-white">⚙️ Configuration</h3>
             <form action="/admin/config" method="POST" class="space-y-3">
                 <div class="grid grid-cols-2 gap-2">
-                    <label class="flex items-center space-x-2 cursor-pointer bg-slate-800 p-2 rounded border ${config.maintenance ? 'border-red-500' : 'border-slate-600'}">
-                        <input type="checkbox" name="maintenance" ${config.maintenance ? 'checked' : ''}>
-                        <span class="text-xs text-white">Maintenance Mode</span>
-                    </label>
-                    <label class="flex items-center space-x-2 cursor-pointer bg-slate-800 p-2 rounded border ${config.noReg ? 'border-red-500' : 'border-slate-600'}">
-                        <input type="checkbox" name="noReg" ${config.noReg ? 'checked' : ''}>
-                        <span class="text-xs text-white">Disable Register</span>
-                    </label>
+                    <label class="flex items-center space-x-2 cursor-pointer bg-slate-800 p-2 rounded border ${config.maintenance ? 'border-red-500' : 'border-slate-600'}"><input type="checkbox" name="maintenance" ${config.maintenance ? 'checked' : ''}><span class="text-xs text-white">Maintenance</span></label>
+                    <label class="flex items-center space-x-2 cursor-pointer bg-slate-800 p-2 rounded border ${config.noReg ? 'border-red-500' : 'border-slate-600'}"><input type="checkbox" name="noReg" ${config.noReg ? 'checked' : ''}><span class="text-xs text-white">No Register</span></label>
                 </div>
                 <div><label class="text-xs text-slate-400 uppercase">Announcement</label><input name="banner" value="${config.banner}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm"></div>
-                <div><label class="text-xs text-slate-400 uppercase">Telegram (No @)</label><input name="telegram" value="${config.telegram}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm"></div>
+                <div><label class="text-xs text-slate-400 uppercase">Telegram</label><input name="telegram" value="${config.telegram}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm"></div>
                 <div><label class="text-xs text-slate-400 uppercase">Payment Details</label><textarea name="payment" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm h-20">${config.payment}</textarea></div>
                 <button class="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-2 rounded font-bold w-full">Update Settings</button>
             </form>
         </div>
-
         <div class="glass p-6 rounded-xl"><h3 class="text-xl font-bold text-white mb-4">💰 User Top Up</h3><form action="/admin/topup" method="POST" class="space-y-3"><input name="username" placeholder="Username" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><div class="flex gap-2"><input name="amount" type="number" placeholder="Amount" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><button class="bg-blue-600 px-4 rounded text-white font-bold">Add</button></div></form></div>
-        <div class="glass p-6 rounded-xl"><h3 class="text-lg font-bold text-white mb-2">👥 Registered Users</h3><div class="max-h-64 overflow-y-auto pr-2">${userListHtml || '<p class="text-slate-500">No other users yet</p>'}</div></div>
+        <div class="glass p-6 rounded-xl"><h3 class="text-lg font-bold text-white mb-2">👥 Users</h3><div class="max-h-64 overflow-y-auto pr-2">${userListHtml}</div></div>
       </div>
       <div class="lg:col-span-2 space-y-8">
         <div class="glass p-6 rounded-xl"><h3 class="text-xl font-bold text-white mb-4">➕ Add Product</h3><form action="/admin/add" method="POST" class="space-y-3"><div class="grid grid-cols-2 gap-4"><input name="name" placeholder="Name" required class="bg-slate-800 border border-slate-600 rounded p-2 text-white"><input name="price" type="number" placeholder="Price" required class="bg-slate-800 border border-slate-600 rounded p-2 text-white"></div><input name="desc" placeholder="Description" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><select name="type" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><option value="manual">Manual Stock</option><option value="api">API Link</option></select><textarea name="data" placeholder="Codes (Manual) or URL (API)" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-20"></textarea><button class="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-2 rounded">Add Product</button></form></div>
@@ -253,15 +257,11 @@ app.post("/admin/config", async (c) => {
     const user = await getSessionUser(c);
     if (!user?.isAdmin) return c.redirect("/");
     const body = await c.req.parseBody();
-    
     await setConfig("banner", body.banner as string);
     await setConfig("telegram", body.telegram as string);
     await setConfig("payment", body.payment as string);
-    
-    // Handle Checkboxes (if checked sends "on", if unchecked sends nothing)
     await setConfig("maintenance", body.maintenance === "on");
     await setConfig("no_reg", body.noReg === "on");
-
     return c.redirect("/admin");
 });
 
