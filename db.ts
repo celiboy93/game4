@@ -20,6 +20,7 @@ export interface Product {
   stock: string[]; 
   apiUrl?: string;
   imageUrl?: string;
+  originalPrice?: number; // New: Discount Logic
 }
 
 export interface Transaction {
@@ -29,6 +30,7 @@ export interface Transaction {
   amount: number;
   detail: string;
   date: number;
+  refunded?: boolean;
 }
 
 export interface Voucher {
@@ -86,8 +88,6 @@ export async function getConfig() {
     const noReg = await kv.get<boolean>(["config", "no_reg"]);
     const bonusActive = await kv.get<boolean>(["config", "bonus_active"]);
     const bonusAmount = await kv.get<number>(["config", "bonus_amount"]);
-    
-    // New: Slider Images
     const sliderImages = await kv.get<string[]>(["config", "slider_images"]);
     
     return {
@@ -98,7 +98,6 @@ export async function getConfig() {
         noReg: noReg.value ?? false,
         bonusActive: bonusActive.value ?? false,
         bonusAmount: bonusAmount.value || 0,
-        // Default Images if none set
         sliderImages: sliderImages.value || [
             "https://img.freepik.com/free-vector/gaming-banner-template-with-geometric-shapes_23-2148795457.jpg",
             "https://t3.ftcdn.net/jpg/02/85/90/44/360_F_285904463_52tKiXp59JoHuAAxHRn3jKk8qI2o56q7.jpg",
