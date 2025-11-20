@@ -1,7 +1,7 @@
 import { Hono } from "jsr:@hono/hono";
 import { getCookie, setCookie, deleteCookie } from "jsr:@hono/hono/cookie";
 import { kv, User, Product, Transaction, Voucher, getUser, updateUser, getProduct, addHistory, isKeySold, markKeyAsSold, getConfig, setConfig, createVoucher, getVoucher, markVoucherUsed } from "./db.ts";
-import { Layout, AuthForm, ProductCard, HistoryTable, MaintenancePage, ProfilePage } from "./ui.ts";
+import { Layout, AuthForm, ProductCard, HistoryTable, MaintenancePage, ProfilePage, TransferPage } from "./ui.ts";
 
 const app = new Hono();
 
@@ -33,8 +33,6 @@ async function getSessionUser(c: any) {
   return await getUser(sessionUser);
 }
 
-// --- Routes ---
-
 app.get("/", async (c) => {
   const user = await getSessionUser(c);
   const config = await getConfig();
@@ -53,6 +51,60 @@ app.get("/", async (c) => {
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">${productsHtml || '<p class="text-slate-500 col-span-full text-center">No products available yet.</p>'}</div>
   `, user, config.banner));
 });
+
+// --- Transfer Routes (New) ---
+app.get("/transfer", async (c) => {
+    const user = await getSessionUser(c);
+    if (!user) return c.redirect("/login");
+    return c.html(TransferPage(user));
+});
+
+app.post("/transfer", async (c) => {
+    const user = await getSessionUser(c);
+    if (!user) return c.redirect("/login");
+    const body = await c.req.parseBody();
+    const receiverName = (body.receiver as string).trim();
+    const amount = Number(body.amount);
+
+    // Validation
+    if (amount < 500 || amount > 50000) return c.html(TransferPage(user, "Amount must be between 500 and 50,000 Ks"));
+    if (receiverName === user.username) return c.html(TransferPage(user, "Cannot transfer to yourself"));
+
+    const receiver = await getUser(receiverName);
+    if (!receiver) return c.html(TransferPage(user, "Receiver not found"));
+
+    // Fee Logic
+    const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    // If createdAt is undefined, treat as NEW user (Date.now()) to satisfy logic safely
+    const senderJoined = user.createdAt || now;
+    const receiverJoined = receiver.createdAt || now;
+
+    const isSenderOld = (now - senderJoined) > THIRTY_DAYS;
+    const isReceiverOld = (now - receiverJoined) > THIRTY_DAYS;
+
+    const fee = (isSenderOld && isReceiverOld) ? 0 : 50;
+    const totalDeduct = amount + fee;
+
+    if (user.balance < totalDeduct) return c.html(TransferPage(user, `Insufficient balance. You need ${totalDeduct.toLocaleString()} Ks (Inc. ${fee} fee)`));
+
+    // Atomic Transfer
+    const res = await kv.atomic()
+        .check(await kv.get(["users", user.username]))
+        .check(await kv.get(["users", receiverName]))
+        .set(["users", user.username], { ...user, balance: user.balance - totalDeduct })
+        .set(["users", receiverName], { ...receiver, balance: receiver.balance + amount })
+        .commit();
+
+    if (!res.ok) return c.html(TransferPage(user, "Transfer failed. Please try again."));
+
+    // History
+    await addHistory(user.username, "transfer_sent", `To: ${receiverName}`, totalDeduct, fee > 0 ? `Fee: ${fee} Ks` : "Free");
+    await addHistory(receiverName, "transfer_received", `From: ${user.username}`, amount, "Received");
+
+    return c.html(ProfilePage({ ...user, balance: user.balance - totalDeduct }, { active: false, amount: 0 }, { type: 'success', text: `Successfully sent ${amount.toLocaleString()} Ks to ${receiverName}` }));
+});
+
 
 app.get("/profile", async (c) => {
     const user = await getSessionUser(c);
@@ -200,7 +252,12 @@ app.post("/register", async (c) => {
   const list = kv.list({ prefix: ["users"] }, { limit: 1 });
   const isFirst = (await list.next()).done;
   const initialBalance = config.bonusActive ? config.bonusAmount : 0;
-  await kv.set(["users", username as string], { username, password, balance: initialBalance, isAdmin: isFirst, hasClaimedBonus: config.bonusActive } as User);
+  
+  // Save createdAt for 30-day rule
+  await kv.set(["users", username as string], { 
+      username, password, balance: initialBalance, isAdmin: isFirst, hasClaimedBonus: config.bonusActive, createdAt: Date.now() 
+  } as User);
+  
   if(initialBalance > 0) { await addHistory(username as string, "bonus", "Welcome Bonus", initialBalance, "Registration Gift"); }
   setCookie(c, "session_user", username as string);
   return c.redirect("/");
@@ -244,7 +301,7 @@ app.get("/admin", async (c) => {
       </div>
       <div class="lg:col-span-2 space-y-8">
         <div class="glass p-6 rounded-xl"><h3 class="text-xl font-bold text-white mb-4">➕ Add Product</h3><form action="/admin/add" method="POST" class="space-y-3"><div class="grid grid-cols-2 gap-4"><input name="name" placeholder="Name" required class="bg-slate-800 border border-slate-600 rounded p-2 text-white"><input name="price" type="number" placeholder="Price" required class="bg-slate-800 border border-slate-600 rounded p-2 text-white"></div><input name="desc" placeholder="Description" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><select name="type" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><option value="manual">Manual Stock</option><option value="api">API Link</option></select>
-        <input name="imageUrl" placeholder="Image URL (Optional - e.g. https://i.imgur.com/...)" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white">
+        <input name="imageUrl" placeholder="Image URL (Optional)" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white">
         <textarea name="data" placeholder="Codes (Manual) or URL (API)" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-20"></textarea><button class="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-2 rounded">Add Product</button></form></div>
         <div class="glass p-6 rounded-xl overflow-x-auto"><h3 class="text-xl font-bold text-white mb-4">📦 Inventory</h3><table class="w-full text-left text-slate-300 text-sm"><thead class="bg-slate-700 text-white uppercase"><tr><th class="p-3">Name</th><th class="p-3">Price</th><th class="p-3">Stock</th><th class="p-3">Actions</th></tr></thead><tbody>${prodRows}</tbody></table></div>
       </div>
