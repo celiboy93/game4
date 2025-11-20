@@ -7,7 +7,7 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>${title}</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
@@ -43,9 +43,8 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
         });
     }
 
-    // --- App-like Page Transition Loader ---
     document.addEventListener("DOMContentLoaded", () => {
-        // 1. Handle Lazy Stock
+        // Lazy Stock
         const apiProducts = document.querySelectorAll(".api-stock-loader");
         apiProducts.forEach(async (el) => {
             const id = el.dataset.id;
@@ -57,34 +56,25 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
             } catch { el.innerText = "?"; }
         });
 
-        // 2. Handle Page Navigation Loader
+        // Page Loader
         const loader = document.getElementById('page-loader');
         document.querySelectorAll('a').forEach(link => {
             link.addEventListener('click', (e) => {
                 const href = link.getAttribute('href');
-                // Only show loader for internal navigation, not JS calls or anchors
                 if (href && !href.startsWith('#') && !href.startsWith('javascript') && !e.ctrlKey && !e.metaKey) {
                     loader.classList.remove('hidden');
                 }
             });
         });
-        
-        // Show loader on forms too
         document.querySelectorAll('form').forEach(form => {
             form.addEventListener('submit', () => {
-                // Don't show if it's a modal internal form
-                if(!form.closest('.modal-content')) {
-                    loader.classList.remove('hidden');
-                }
+                if(!form.closest('.modal-content')) { loader.classList.remove('hidden'); }
             });
         });
     });
     
-    // Hide loader when page comes back from bfcache (back button)
     window.addEventListener('pageshow', (event) => {
-        if (event.persisted) {
-            document.getElementById('page-loader').classList.add('hidden');
-        }
+        if (event.persisted) { document.getElementById('page-loader').classList.add('hidden'); }
     });
 
     function disableProductCard(id) {
@@ -117,7 +107,6 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
     function showErrorModal(msg, isBalanceError = false) {
         document.getElementById('errorMessage').innerText = msg;
         const btnContainer = document.getElementById('errorBtnContainer');
-        
         if(isBalanceError) {
             btnContainer.innerHTML = \`
                 <div class="flex gap-3 w-full">
@@ -166,17 +155,13 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
     .marquee-container { overflow: hidden; white-space: nowrap; position: relative; }
     .marquee-content { display: inline-block; animation: marquee 15s linear infinite; padding-left: 100%; }
     @keyframes marquee { 0% { transform: translate(0, 0); } 100% { transform: translate(-100%, 0); } }
-    
-    /* Loader CSS */
     .loader { border: 4px solid rgba(255,255,255,0.1); width: 40px; height: 40px; border-radius: 50%; border-left-color: #3b82f6; animation: spin 1s linear infinite; }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
   </style>
 </head>
 <body class="min-h-screen flex flex-col relative">
   
-  <div id="page-loader" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div class="loader"></div>
-  </div>
+  <div id="page-loader" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm"><div class="loader"></div></div>
 
   <nav class="glass sticky top-0 z-40 border-b border-slate-700">
     <div class="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
@@ -273,14 +258,12 @@ export const AuthForm = (type: "Login" | "Register", error?: string) => `
 
 export const MaintenancePage = () => `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Maintenance</title><script src="https://cdn.tailwindcss.com"></script><style>body { font-family: sans-serif; background-color: #0f172a; color: #e2e8f0; }</style></head><body class="h-screen flex flex-col items-center justify-center p-4 text-center"><div class="bg-slate-800 p-8 rounded-2xl border border-slate-700 shadow-2xl max-w-md w-full"><div class="text-6xl mb-4">🚧</div><h1 class="text-3xl font-bold text-white mb-2">Under Maintenance</h1><p class="text-slate-400 mb-6">We are currently updating our server. Please check back later.</p><a href="/login" class="text-sm text-slate-600 hover:text-slate-400">Admin Login</a></div></body></html>`;
 
-// REDESIGNED PRODUCT CARD
 export const ProductCard = (p: Product) => {
   const isManual = p.type === 'manual';
   const manualStock = p.stock ? p.stock.length : 0;
   const stockDisplay = isManual ? `Stock: ${manualStock}` : `Stock: <span class="api-stock-loader animate-pulse" data-id="${p.id}">...</span>`;
   const isDisabled = isManual && manualStock === 0;
   
-  // Image handling: Use custom image or fallback icon
   const imageHtml = p.imageUrl 
       ? `<img src="${p.imageUrl}" class="w-24 h-24 rounded-lg object-cover border border-slate-700 shadow-md" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
          <div class="w-24 h-24 rounded-lg bg-slate-800 items-center justify-center text-3xl hidden border border-slate-700 shadow-md">🎮</div>`
@@ -289,9 +272,7 @@ export const ProductCard = (p: Product) => {
   return `
   <div class="product-card glass rounded-xl overflow-hidden hover:shadow-2xl hover:shadow-blue-500/10 transition transform hover:-translate-y-1 duration-300 p-4" data-name="${p.name}">
     <div class="flex gap-4">
-        <div class="flex-shrink-0">
-            ${imageHtml}
-        </div>
+        <div class="flex-shrink-0">${imageHtml}</div>
         <div class="flex-grow flex flex-col justify-between">
             <div>
                 <div class="flex justify-between items-start">
@@ -313,17 +294,24 @@ export const ProductCard = (p: Product) => {
 export const HistoryTable = (transactions: Transaction[], nextCursor: string | null) => {
     let rows = "";
     if (transactions.length === 0) { rows = `<tr><td colspan="4" class="p-4 text-center text-slate-500">No transaction history found.</td></tr>`; } 
-    else { rows = transactions.map(t => `<tr class="border-b border-slate-700 hover:bg-slate-800/50 transition"><td class="p-4 text-sm text-slate-400">${new Date(t.date).toLocaleString()}</td><td class="p-4"><span class="px-2 py-1 rounded text-xs font-bold ${t.type === 'purchase' ? 'bg-blue-500/20 text-blue-400' : t.type === 'voucher' ? 'bg-purple-500/20 text-purple-400' : t.type === 'bonus' ? 'bg-pink-500/20 text-pink-400' : 'bg-green-500/20 text-green-400'}">${t.type.toUpperCase()}</span></td><td class="p-4 font-medium text-white">${t.itemName} ${t.type === 'purchase' ? `<div class="text-xs text-slate-500 mt-1 font-mono truncate w-32 md:w-64">${t.detail.substring(0, 30)}...</div>` : ''}</td><td class="p-4 text-right ${t.type === 'purchase' ? 'text-red-400' : 'text-green-400'} font-bold">${t.type === 'purchase' ? '-' : '+'}${t.amount.toLocaleString()} Ks</td></tr>`).join(""); }
+    else { 
+        rows = transactions.map(t => {
+            let color = 'text-white';
+            let sign = '';
+            let bg = 'bg-slate-700';
+            
+            if(t.type === 'purchase' || t.type === 'transfer_sent') { color = 'text-red-400'; sign = '-'; bg = 'bg-red-500/20'; }
+            else if (t.type === 'topup' || t.type === 'voucher' || t.type === 'bonus' || t.type === 'transfer_received') { color = 'text-green-400'; sign = '+'; bg = 'bg-green-500/20'; }
+            
+            return `<tr class="border-b border-slate-700 hover:bg-slate-800/50 transition"><td class="p-4 text-sm text-slate-400">${new Date(t.date).toLocaleDateString()}</td><td class="p-4"><span class="px-2 py-1 rounded text-[10px] font-bold uppercase ${bg} ${color}">${t.type.replace('_', ' ')}</span></td><td class="p-4 font-medium text-white">${t.itemName} ${t.detail ? `<div class="text-xs text-slate-500 mt-1 font-mono truncate w-32 md:w-64">${t.detail.substring(0, 30)}...</div>` : ''}</td><td class="p-4 text-right ${color} font-bold">${sign}${t.amount.toLocaleString()} Ks</td></tr>`;
+        }).join(""); 
+    }
     return `<div class="glass rounded-xl overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-left"><thead class="bg-slate-800 text-slate-300 uppercase text-xs"><tr><th class="p-4">Date</th><th class="p-4">Type</th><th class="p-4">Description</th><th class="p-4 text-right">Amount</th></tr></thead><tbody class="divide-y divide-slate-700">${rows}</tbody></table></div>${nextCursor ? `<div class="p-4 text-center border-t border-slate-700"><a href="/history?cursor=${nextCursor}" class="inline-block bg-slate-700 hover:bg-slate-600 text-white px-6 py-2 rounded transition">Load Next 10 Entries</a></div>` : ''}</div>`;
 };
 
+// Updated Profile Page with Transfer Button
 export const ProfilePage = (user: User, bonusConfig: {active: boolean, amount: number}, message?: {type: 'success'|'error', text: string}) => {
-    const avatarGrid = AVATARS.map(av => `
-        <div id="av-${av}" onclick="selectAvatar('${av}')" class="avatar-option text-4xl p-3 bg-slate-800 rounded-xl cursor-pointer hover:bg-slate-700 transition border border-slate-600 flex justify-center items-center ${user.avatar === av ? 'ring-4 ring-blue-500' : ''}">
-            ${av}
-        </div>
-    `).join("");
-
+    const avatarGrid = AVATARS.map(av => `<div id="av-${av}" onclick="selectAvatar('${av}')" class="avatar-option text-4xl p-3 bg-slate-800 rounded-xl cursor-pointer hover:bg-slate-700 transition border border-slate-600 flex justify-center items-center ${user.avatar === av ? 'ring-4 ring-blue-500' : ''}">${av}</div>`).join("");
     return Layout("Profile", `
         <div class="max-w-4xl mx-auto flex flex-col lg:grid lg:grid-cols-2 gap-8 w-full">
             <div class="space-y-8 w-full">
@@ -333,6 +321,7 @@ export const ProfilePage = (user: User, bonusConfig: {active: boolean, amount: n
                     <p class="text-green-400 font-bold text-lg">${user.balance.toLocaleString()} Ks</p>
                     <div class="mt-6 flex justify-center gap-3">
                          <a href="/history" class="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg text-sm">History</a>
+                         <a href="/transfer" class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm flex items-center gap-1"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path></svg> Transfer</a>
                          <a href="/logout" class="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-lg text-sm">Logout</a>
                     </div>
                     ${user.isAdmin ? `<a href="/admin" class="mt-4 inline-block text-yellow-400 text-sm font-bold border border-yellow-500/30 px-4 py-1 rounded-full">Access Admin Panel</a>` : ''}
@@ -346,3 +335,37 @@ export const ProfilePage = (user: User, bonusConfig: {active: boolean, amount: n
         ${message ? `<div class="fixed bottom-5 right-5 ${message.type === 'success' ? 'bg-green-600' : 'bg-red-600'} text-white px-6 py-3 rounded-xl shadow-2xl animate-bounce">${message.text}</div>` : ''}
     `, user);
 }
+
+// New: Transfer Page UI
+export const TransferPage = (user: User, error?: string) => Layout("Transfer", `
+    <div class="max-w-md mx-auto glass p-8 rounded-2xl border border-blue-500/30">
+        <h1 class="text-2xl font-bold text-white mb-6 flex items-center gap-2"><svg class="w-6 h-6 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path></svg> Transfer Money</h1>
+        
+        ${error ? `<div class="bg-red-500/20 border border-red-500 text-red-200 p-3 rounded-lg mb-4 text-sm text-center">${error}</div>` : ''}
+        
+        <form method="POST" action="/transfer" class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-400 mb-1">Recipient Username</label>
+                <input type="text" name="receiver" required class="w-full bg-slate-900 border border-slate-600 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Enter username">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-400 mb-1">Amount (Ks)</label>
+                <input type="number" name="amount" min="500" max="50000" required class="w-full bg-slate-900 border border-slate-600 rounded-lg p-3 text-white focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Min: 500 - Max: 50,000">
+            </div>
+            
+            <div class="text-xs text-slate-500 bg-slate-800 p-3 rounded border border-slate-700">
+                <p>ℹ️ <strong>Rules:</strong></p>
+                <ul class="list-disc pl-4 mt-1 space-y-1">
+                    <li>Min: 500 Ks | Max: 50,000 Ks</li>
+                    <li>If both users > 30 days: <strong>Free</strong></li>
+                    <li>If any user < 30 days: <strong>50 Ks Fee</strong></li>
+                </ul>
+            </div>
+
+            <button class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-lg transition shadow-lg">Confirm Transfer</button>
+        </form>
+        <div class="mt-4 text-center">
+            <a href="/profile" class="text-slate-500 hover:text-white text-sm">Cancel</a>
+        </div>
+    </div>
+`, user);
