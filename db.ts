@@ -1,5 +1,6 @@
 export const kv = await Deno.openKv();
 
+// --- USER TYPES ---
 export interface User {
   username: string;
   password: string;
@@ -8,27 +9,30 @@ export interface User {
   avatar?: string;
   isBlocked?: boolean;
   hasClaimedBonus?: boolean;
-  createdAt?: number;
+  createdAt?: number; // For transfer rules (30 days)
 }
 
+// --- PRODUCT TYPES ---
 export interface Product {
   id: string;
   name: string;
   description: string;
   price: number;
   type: "manual" | "api" | "shared";
-  stock: string[]; 
-  apiUrl?: string;
+  stock: string[]; // For 'manual'
+  apiUrl?: string; // For 'api'
   imageUrl?: string;
   originalPrice?: number;
-  sharedData?: string;
-  sharedCapacity?: number;
-  sharedSold?: number;
+  // For 'shared'
+  sharedData?: string;      
+  sharedCapacity?: number;  
+  sharedSold?: number;      
 }
 
+// --- TRANSACTION & HISTORY TYPES ---
 export interface Transaction {
   id: string;
-  type: "purchase" | "topup" | "voucher" | "bonus" | "transfer_sent" | "transfer_received" | "refund" | "bet_2d" | "win_2d"; // Added 2D types
+  type: "purchase" | "topup" | "voucher" | "bonus" | "transfer_sent" | "transfer_received" | "refund" | "bet_2d" | "win_2d";
   itemName: string;
   amount: number;
   detail: string;
@@ -36,17 +40,26 @@ export interface Transaction {
   refunded?: boolean;
 }
 
-export interface Voucher { code: string; amount: number; isUsed: boolean; usedBy?: string; }
-export interface GlobalSale extends Transaction { username: string; }
+export interface GlobalSale extends Transaction {
+    username: string;
+}
 
-// NEW: 2D Structures
+// --- VOUCHER TYPE ---
+export interface Voucher {
+    code: string;
+    amount: number;
+    isUsed: boolean;
+    usedBy?: string;
+}
+
+// --- 2D TYPES ---
 export interface TwoDResult {
-    date: string; // YYYY-MM-DD
-    time: string; // 12:01 PM or 4:30 PM
+    date: string;
+    time: string;
     set: string;
     value: string;
     twod: string;
-    timestamp: number;
+    timestamp?: number;
 }
 
 export interface TwoDBet {
@@ -54,11 +67,13 @@ export interface TwoDBet {
     username: string;
     number: string;
     amount: number;
-    date: string; // YYYY-MM-DD
-    time: string; // "Morning" or "Evening"
+    date: string;
+    session: "Morning" | "Evening";
     status: "pending" | "win" | "lose";
     timestamp: number;
 }
+
+// --- CORE FUNCTIONS ---
 
 export async function getUser(username: string) {
   const res = await kv.get<User>(["users", username]);
@@ -96,6 +111,7 @@ export async function markKeyAsSold(key: string, username: string) {
   await kv.set(["sold_keys", key], { soldTo: username, date: Date.now() });
 }
 
+// --- CONFIGURATION ---
 export async function getConfig() {
     const banner = await kv.get<string>(["config", "banner"]);
     const payment = await kv.get<string>(["config", "payment"]);
@@ -108,7 +124,7 @@ export async function getConfig() {
     const manual2d = await kv.get<string>(["config", "manual_2d"]);
     
     return {
-        banner: banner.value || "Welcome to GameStore!",
+        banner: banner.value || "Welcome to Kairizy Store!",
         payment: payment.value || "Kpay: 09xxxxxx\nWave: 09xxxxxx",
         telegram: telegram.value || "username",
         maintenance: maintenance.value ?? false,
@@ -128,6 +144,7 @@ export async function setConfig(key: string, value: any) {
     await kv.set(["config", key], value);
 }
 
+// --- VOUCHER LOGIC ---
 export async function createVoucher(code: string, amount: number) {
     const voucher: Voucher = { code, amount, isUsed: false };
     await kv.set(["vouchers", code], voucher);
@@ -145,34 +162,53 @@ export async function markVoucherUsed(code: string, username: string) {
     }
 }
 
+// --- REFUND LOGIC ---
 export async function processRefund(username: string, date: number, txId: string) {
     const user = await getUser(username);
     const saleRes = await kv.get<GlobalSale>(["global_sales", date, txId]);
     const userTxRes = await kv.get<Transaction>(["history", username, date, txId]);
+
     if (!user || !saleRes.value || !userTxRes.value) return false;
     if (saleRes.value.refunded) return false;
+
     const amount = saleRes.value.amount;
+    
+    // Atomic Refund Transaction
     const res = await kv.atomic()
         .set(["users", username], { ...user, balance: user.balance + amount })
         .set(["global_sales", date, txId], { ...saleRes.value, refunded: true })
         .set(["history", username, date, txId], { ...userTxRes.value, refunded: true })
         .commit();
-    if(res.ok) { await addHistory(username, "refund", `Refund: ${saleRes.value.itemName}`, amount, "Admin Refunded"); }
+    
+    if(res.ok) {
+        await addHistory(username, "refund", `Refund: ${saleRes.value.itemName}`, amount, "Admin Refunded");
+    }
     return res.ok;
 }
 
-// NEW: 2D Logic
+// --- 2D LOGIC ---
 export async function save2DResult(res: TwoDResult) {
     // Key: ["2d_results", YYYY-MM-DD, TimeString]
     await kv.set(["2d_results", res.date, res.time], res);
 }
 
-export async function placeBet(username: string, number: string, amount: number, session: string) {
+export async function placeBet(username: string, number: string, amount: number, session: "Morning" | "Evening") {
     const id = crypto.randomUUID();
-    const today = new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD
+    // Store date in YYYY-MM-DD format based on Myanmar Time
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Yangon" });
+    
     const bet: TwoDBet = {
-        id, username, number, amount, date: today, time: session, status: "pending", timestamp: Date.now()
+        id, 
+        username, 
+        number, 
+        amount, 
+        date: today, 
+        session, 
+        status: "pending", 
+        timestamp: Date.now()
     };
+    
+    // Key structure: ["2d_bets", YYYY-MM-DD, USERNAME, ID]
     await kv.set(["2d_bets", today, username, id], bet);
     return bet;
 }
