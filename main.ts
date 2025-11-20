@@ -1,7 +1,7 @@
 import { Hono } from "jsr:@hono/hono";
 import { getCookie, setCookie, deleteCookie } from "jsr:@hono/hono/cookie";
 import { kv, User, Product, Transaction, getUser, getProduct, addHistory, isKeySold, markKeyAsSold, getConfig, setConfig } from "./db.ts";
-import { Layout, AuthForm, ProductCard, HistoryTable } from "./ui.ts";
+import { Layout, AuthForm, ProductCard, HistoryTable, MaintenancePage } from "./ui.ts";
 
 const app = new Hono();
 
@@ -39,13 +39,22 @@ async function getSessionUser(c: any) {
 
 app.get("/", async (c) => {
   const user = await getSessionUser(c);
+  const config = await getConfig();
+
+  // MAINTENANCE CHECK
+  // If maintenance is ON and user is NOT admin, show maintenance page
+  if (config.maintenance && (!user || !user.isAdmin)) {
+      return c.html(MaintenancePage());
+  }
+
   if (!user) return c.redirect("/login");
+  
   const iter = kv.list<Product>({ prefix: ["products"] });
   let productsHtml = "";
   for await (const entry of iter) { productsHtml += ProductCard(entry.value); }
-  const config = await getConfig();
 
   return c.html(Layout("Shop", `
+    ${config.maintenance ? '<div class="bg-red-600 text-white text-center py-1 mb-4 rounded font-bold">⚠️ Maintenance Mode Active (Only Admin can see this)</div>' : ''}
     <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
         <h1 class="text-3xl font-bold text-white">Products</h1>
         <div class="relative w-full md:w-64">
@@ -59,33 +68,21 @@ app.get("/", async (c) => {
   `, user, config.banner));
 });
 
-// New: Deposit Page
 app.get("/deposit", async (c) => {
     const user = await getSessionUser(c);
     if (!user) return c.redirect("/login");
     const config = await getConfig();
+    if (config.maintenance && !user.isAdmin) return c.html(MaintenancePage());
 
     return c.html(Layout("Deposit", `
         <div class="max-w-xl mx-auto">
             <div class="glass rounded-2xl p-8 border border-blue-500/30">
                 <h1 class="text-3xl font-bold text-white mb-2 text-center">💰 Top Up Balance</h1>
                 <p class="text-slate-400 text-center mb-8">ငွေဖြည့်ရန် အောက်ပါအကောင့်များသို့ ငွေလွှဲပါ။</p>
-                
-                <div class="bg-slate-900/50 rounded-xl p-6 mb-8 border border-slate-700">
-                    <pre class="font-mono text-slate-200 whitespace-pre-wrap leading-loose text-center">${config.payment}</pre>
-                </div>
-
-                <div class="text-center">
-                    <p class="text-slate-400 text-sm mb-4">ငွေလွှဲပြီးပါက Admin ထံ Screenshot ပေးပို့ပါ။</p>
-                    <a href="https://t.me/${config.telegram}" target="_blank" class="inline-flex items-center gap-2 bg-blue-500 hover:bg-blue-400 text-white font-bold py-3 px-8 rounded-full transition shadow-lg shadow-blue-500/30">
-                        <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
-                        Send Screenshot
-                    </a>
-                </div>
+                <div class="bg-slate-900/50 rounded-xl p-6 mb-8 border border-slate-700"><pre class="font-mono text-slate-200 whitespace-pre-wrap leading-loose text-center">${config.payment}</pre></div>
+                <div class="text-center"><p class="text-slate-400 text-sm mb-4">ငွေလွှဲပြီးပါက Admin ထံ Screenshot ပေးပို့ပါ။</p><a href="https://t.me/${config.telegram}" target="_blank" class="inline-flex items-center gap-2 bg-blue-500 hover:bg-blue-400 text-white font-bold py-3 px-8 rounded-full transition shadow-lg shadow-blue-500/30"><svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>Send Screenshot</a></div>
             </div>
-            <div class="mt-6 text-center">
-                <a href="/" class="text-slate-500 hover:text-white">Cancel</a>
-            </div>
+            <div class="mt-6 text-center"><a href="/" class="text-slate-500 hover:text-white">Cancel</a></div>
         </div>
     `, user));
 });
@@ -125,8 +122,16 @@ app.post("/login", async (c) => {
   if (user && user.password === password) { setCookie(c, "session_user", user.username); return c.redirect("/"); }
   return c.html(Layout("Login", AuthForm("Login", "Invalid username or password")));
 });
-app.get("/register", (c) => c.html(Layout("Register", AuthForm("Register"))));
+
+app.get("/register", async (c) => {
+    const config = await getConfig();
+    if (config.noReg) return c.html(Layout("Registration Closed", `<div class="text-center py-10 text-red-400 text-xl font-bold">⚠️ New registrations are currently disabled.</div>`));
+    return c.html(Layout("Register", AuthForm("Register")));
+});
 app.post("/register", async (c) => {
+  const config = await getConfig();
+  if (config.noReg) return c.html(Layout("Registration Closed", `<div class="text-center py-10 text-red-400 text-xl font-bold">⚠️ New registrations are currently disabled.</div>`));
+  
   const { username, password } = await c.req.parseBody();
   const existing = await getUser(username as string);
   if (existing) return c.html(Layout("Register", AuthForm("Register", "Username already taken")));
@@ -141,6 +146,9 @@ app.get("/logout", (c) => { deleteCookie(c, "session_user"); return c.redirect("
 app.post("/buy", async (c) => {
   const user = await getSessionUser(c);
   if (!user) return c.redirect("/login");
+  const config = await getConfig();
+  if (config.maintenance && !user.isAdmin) return c.html(MaintenancePage());
+
   const { id } = await c.req.parseBody();
   const product = await getProduct(id as string);
   if (!product) return c.redirect("/");
@@ -210,22 +218,22 @@ app.get("/admin", async (c) => {
   return c.html(Layout("Admin", `
     <div class="grid lg:grid-cols-3 gap-8">
       <div class="lg:col-span-1 space-y-6">
-        
         <div class="glass p-6 rounded-xl border-l-4 border-yellow-500 space-y-4">
             <h3 class="text-xl font-bold text-white">⚙️ Configuration</h3>
             <form action="/admin/config" method="POST" class="space-y-3">
-                <div>
-                    <label class="text-xs text-slate-400 uppercase">Announcement (Marquee)</label>
-                    <input name="banner" value="${config.banner}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm">
+                <div class="grid grid-cols-2 gap-2">
+                    <label class="flex items-center space-x-2 cursor-pointer bg-slate-800 p-2 rounded border ${config.maintenance ? 'border-red-500' : 'border-slate-600'}">
+                        <input type="checkbox" name="maintenance" ${config.maintenance ? 'checked' : ''}>
+                        <span class="text-xs text-white">Maintenance Mode</span>
+                    </label>
+                    <label class="flex items-center space-x-2 cursor-pointer bg-slate-800 p-2 rounded border ${config.noReg ? 'border-red-500' : 'border-slate-600'}">
+                        <input type="checkbox" name="noReg" ${config.noReg ? 'checked' : ''}>
+                        <span class="text-xs text-white">Disable Register</span>
+                    </label>
                 </div>
-                <div>
-                    <label class="text-xs text-slate-400 uppercase">Telegram Username (No @)</label>
-                    <input name="telegram" value="${config.telegram}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm">
-                </div>
-                <div>
-                    <label class="text-xs text-slate-400 uppercase">Payment Details</label>
-                    <textarea name="payment" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm h-24">${config.payment}</textarea>
-                </div>
+                <div><label class="text-xs text-slate-400 uppercase">Announcement</label><input name="banner" value="${config.banner}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm"></div>
+                <div><label class="text-xs text-slate-400 uppercase">Telegram (No @)</label><input name="telegram" value="${config.telegram}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm"></div>
+                <div><label class="text-xs text-slate-400 uppercase">Payment Details</label><textarea name="payment" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm h-20">${config.payment}</textarea></div>
                 <button class="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-2 rounded font-bold w-full">Update Settings</button>
             </form>
         </div>
@@ -241,14 +249,19 @@ app.get("/admin", async (c) => {
   `, user));
 });
 
-// New: Unified Config Update
 app.post("/admin/config", async (c) => {
     const user = await getSessionUser(c);
     if (!user?.isAdmin) return c.redirect("/");
     const body = await c.req.parseBody();
+    
     await setConfig("banner", body.banner as string);
     await setConfig("telegram", body.telegram as string);
     await setConfig("payment", body.payment as string);
+    
+    // Handle Checkboxes (if checked sends "on", if unchecked sends nothing)
+    await setConfig("maintenance", body.maintenance === "on");
+    await setConfig("no_reg", body.noReg === "on");
+
     return c.redirect("/admin");
 });
 
