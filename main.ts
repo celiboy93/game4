@@ -210,16 +210,9 @@ app.post("/buy", async (c) => {
       if (soldKeyIdentifier) await markKeyAsSold(soldKeyIdentifier, user.username);
     } catch { return c.json({ success: false, message: "API Connection Error" }); }
   }
-  
   const tx = await addHistory(user.username, "purchase", product.name, product.price, finalDisplayCode);
   if(tx) await addGlobalSale(user.username, tx);
-  
-  return c.json({ 
-      success: true, 
-      code: finalDisplayCode, 
-      rawCode: soldKeyIdentifier || finalDisplayCode,
-      newBalance: user.balance - product.price 
-  });
+  return c.json({ success: true, code: finalDisplayCode, rawCode: soldKeyIdentifier || finalDisplayCode, newBalance: user.balance - product.price });
 });
 
 app.get("/deposit", async (c) => {
@@ -294,8 +287,8 @@ app.get("/admin", async (c) => {
             <div class="glass p-6 rounded-xl"><h3 class="text-lg font-bold text-white mb-2">👥 Users</h3>${AdminUserTable(userListHtml, encodedUserCursor)}</div>
           </div>
           <div class="lg:col-span-2 space-y-8">
-            <div class="glass p-6 rounded-xl"><h3 class="text-xl font-bold text-white mb-4">➕ Add Product</h3><form action="/admin/add" method="POST" class="space-y-3"><div class="grid grid-cols-2 gap-4"><input name="name" placeholder="Name" required class="bg-slate-800 border border-slate-600 rounded p-2 text-white"><input name="price" type="number" placeholder="Price" required class="bg-slate-800 border border-slate-600 rounded p-2 text-white"></div><input name="desc" placeholder="Description" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white">
-            <select name="type" id="productType" onchange="toggleProductInputs()" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white mb-2"><option value="manual">Manual Stock</option><option value="api">API Link</option><option value="shared">Shared (Multi-User)</option></select>
+            <div class="glass p-6 rounded-xl"><h3 class="text-xl font-bold text-white mb-4">➕ Add Product</h3><form action="/admin/add" method="POST" class="space-y-3"><div class="grid grid-cols-2 gap-4"><input name="name" placeholder="Name" required class="bg-slate-800 border border-slate-600 rounded p-2 text-white"><input name="price" type="number" placeholder="Price" required class="bg-slate-800 border border-slate-600 rounded p-2 text-white"></div><input name="desc" placeholder="Description" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><select name="type" id="productType" onchange="toggleProductInputs()" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white mb-2"><option value="manual">Manual Stock</option><option value="api">API Link</option><option value="shared">Shared (Multi-User)</option></select>
+            
             <div id="input-manual"><textarea name="data" placeholder="Codes (One per line)" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-20 mb-2"></textarea></div>
             <div id="input-api" style="display:none"><textarea name="apiData" placeholder="API URL" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-20 mb-2"></textarea></div>
             <div id="input-shared" style="display:none"><input name="sharedData" placeholder="Shared Code (e.g. VPN-123)" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white mb-2"><input name="sharedCapacity" type="number" placeholder="Limit (e.g. 50)" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white mb-2"></div>
@@ -327,8 +320,73 @@ app.post("/admin/add", async (c) => { const user = await getSessionUser(c); if (
     const p: Product = { id: crypto.randomUUID(), name: body.name as string, description: body.desc as string, price: Number(body.price), type: body.type as any, stock, apiUrl, sharedData, sharedCapacity, sharedSold: 0, imageUrl: body.imageUrl as string, originalPrice: body.originalPrice ? Number(body.originalPrice) : undefined }; 
     await kv.set(["products", p.id], p); return c.redirect("/admin"); 
 });
+
 app.post("/admin/delete", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const { id } = await c.req.parseBody(); await kv.delete(["products", id as string]); return c.redirect("/admin"); });
-app.get("/admin/edit", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const id = c.req.query("id"); const p = await getProduct(id!); if (!p) return c.redirect("/admin"); return c.html(Layout("Edit", `<div class="max-w-lg mx-auto glass p-8 rounded-xl"><h2 class="text-2xl font-bold text-white mb-6">Edit Product</h2><form action="/admin/update" method="POST" class="space-y-4"><input type="hidden" name="id" value="${p.id}"><div><label class="text-slate-400 block mb-1">Name</label><input name="name" value="${p.name}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div><div><label class="text-slate-400 block mb-1">Price</label><input name="price" type="number" value="${p.price}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div><div><label class="text-slate-400 block mb-1">Description</label><input name="desc" value="${p.description}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div><div><label class="text-slate-400 block mb-1">Image URL</label><input name="imageUrl" value="${p.imageUrl || ''}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div><div><label class="text-slate-400 block mb-1">Data</label><textarea name="data" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-32">${p.type === 'manual' ? p.stock.join("\n") : p.type === 'api' ? p.apiUrl : p.sharedData}</textarea><small class="text-slate-500">For Shared: Edit code here.</small></div><div class="flex gap-4 pt-4"><button class="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 rounded">Update</button><a href="/admin" class="flex-1 bg-slate-700 text-center py-2 rounded text-white">Cancel</a></div></form></div>`, user)); });
-app.post("/admin/update", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const p = await getProduct(body.id as string); if (p) { const updated: Product = { ...p, name: body.name as string, price: Number(body.price), description: body.desc as string, stock: p.type === 'manual' ? (body.data as string).split("\n").map(s=>s.trim()).filter(Boolean) : [], apiUrl: p.type === 'api' ? (body.data as string).trim() : undefined, sharedData: p.type === 'shared' ? (body.data as string).trim() : undefined, imageUrl: body.imageUrl as string, originalPrice: body.originalPrice ? Number(body.originalPrice) : undefined }; await kv.set(["products", p.id], updated); } return c.redirect("/admin"); });
+
+// REWRITTEN EDIT ROUTE TO SUPPORT ALL TYPES
+app.get("/admin/edit", async (c) => { 
+    const user = await getSessionUser(c); 
+    if (!user?.isAdmin) return c.redirect("/"); 
+    const id = c.req.query("id"); 
+    const p = await getProduct(id!); 
+    if (!p) return c.redirect("/admin"); 
+
+    return c.html(Layout("Edit", `
+        <div class="max-w-lg mx-auto glass p-8 rounded-xl">
+            <h2 class="text-2xl font-bold text-white mb-6">Edit Product</h2>
+            <form action="/admin/update" method="POST" class="space-y-4">
+                <input type="hidden" name="id" value="${p.id}">
+                <div><label class="text-slate-400 block mb-1">Name</label><input name="name" value="${p.name}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div>
+                <div><label class="text-slate-400 block mb-1">Price</label><input name="price" type="number" value="${p.price}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div>
+                <div><label class="text-slate-400 block mb-1">Original Price</label><input name="originalPrice" type="number" value="${p.originalPrice || ''}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div>
+                <div><label class="text-slate-400 block mb-1">Description</label><input name="desc" value="${p.description}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div>
+                <div><label class="text-slate-400 block mb-1">Image URL</label><input name="imageUrl" value="${p.imageUrl || ''}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div>
+                
+                <div>
+                    <label class="text-slate-400 block mb-1">Data (${p.type.toUpperCase()})</label>
+                    ${p.type === 'manual' ? `<textarea name="data" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-32">${p.stock.join("\n")}</textarea>` : ''}
+                    ${p.type === 'api' ? `<textarea name="data" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-20">${p.apiUrl}</textarea>` : ''}
+                    ${p.type === 'shared' ? `
+                        <input name="data" value="${p.sharedData}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white mb-2">
+                        <label class="text-slate-400 block mb-1">Capacity Limit (Sold: ${p.sharedSold})</label>
+                        <input name="sharedCapacity" type="number" value="${p.sharedCapacity}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white">
+                    ` : ''}
+                </div>
+
+                <div class="flex gap-4 pt-4">
+                    <button class="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 rounded">Update</button>
+                    <a href="/admin" class="flex-1 bg-slate-700 text-center py-2 rounded text-white">Cancel</a>
+                </div>
+            </form>
+        </div>
+    `, user)); 
+});
+
+app.post("/admin/update", async (c) => { 
+    const user = await getSessionUser(c); 
+    if (!user?.isAdmin) return c.redirect("/"); 
+    const body = await c.req.parseBody(); 
+    const p = await getProduct(body.id as string); 
+    if (p) { 
+        let updated = { 
+            ...p, 
+            name: body.name as string, 
+            price: Number(body.price), 
+            description: body.desc as string, 
+            imageUrl: body.imageUrl as string,
+            originalPrice: body.originalPrice ? Number(body.originalPrice) : undefined
+        };
+        
+        if(p.type === 'manual') updated.stock = (body.data as string).split("\n").map(s=>s.trim()).filter(Boolean);
+        else if(p.type === 'api') updated.apiUrl = (body.data as string).trim();
+        else if(p.type === 'shared') {
+            updated.sharedData = (body.data as string).trim();
+            updated.sharedCapacity = Number(body.sharedCapacity);
+        }
+        
+        await kv.set(["products", p.id], updated); 
+    } 
+    return c.redirect("/admin"); 
+});
 
 Deno.serve(app.fetch);
