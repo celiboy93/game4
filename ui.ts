@@ -11,64 +11,26 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
   <title>${title}</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
-    // --- Highlight Active Tab ---
+    // --- Active Tab Highlighter ---
     document.addEventListener("DOMContentLoaded", () => {
         const path = window.location.pathname;
+        // Highlight logic
         const navIds = {
             '/': 'nav-home',
             '/history': 'nav-history',
             '/profile': 'nav-profile',
-            '/deposit': 'nav-profile' // Keep profile active for deposit
+            '/deposit': 'nav-profile',
+            '/transfer': 'nav-profile'
         };
         const activeId = navIds[path] || 'nav-home';
         const el = document.getElementById(activeId);
         if(el) {
-            el.classList.add('text-blue-400');
             el.classList.remove('text-slate-500');
+            el.classList.add('text-blue-500');
         }
-
-        // Slider & Loader Logic
-        const sliderTrack = document.getElementById('sliderTrack');
-        if(sliderTrack && sliderTrack.children.length > 1) {
-            let index = 0;
-            const count = sliderTrack.children.length;
-            setInterval(() => {
-                index = (index + 1) % count;
-                sliderTrack.style.transform = \`translateX(-\${index * 100}%)\`;
-            }, 3500);
-        }
-        
-        const apiProducts = document.querySelectorAll(".api-stock-loader");
-        apiProducts.forEach(async (el) => {
-            const id = el.dataset.id;
-            try {
-                const res = await fetch("/check-stock?id=" + id);
-                const text = await res.text();
-                el.innerText = text;
-                if(text.includes("0") || text === "?") { disableProductCard(id); }
-            } catch { el.innerText = "?"; }
-        });
-
-        const loader = document.getElementById('page-loader');
-        document.querySelectorAll('a').forEach(link => {
-            link.addEventListener('click', (e) => {
-                const href = link.getAttribute('href');
-                if (href && !href.startsWith('#') && !href.startsWith('javascript') && !e.ctrlKey && !e.metaKey) {
-                    loader.classList.remove('hidden');
-                }
-            });
-        });
-        document.querySelectorAll('form').forEach(form => {
-            form.addEventListener('submit', () => {
-                if(!form.closest('.modal-content')) { loader.classList.remove('hidden'); }
-            });
-        });
-    });
-    
-    window.addEventListener('pageshow', (event) => {
-        if (event.persisted) { document.getElementById('page-loader').classList.add('hidden'); }
     });
 
+    // --- Other Scripts (Copy, Slider, Loader) ---
     function copyToClipboard(text, btnId = 'copyBtn') {
         navigator.clipboard.writeText(text).then(() => {
             const btn = document.getElementById(btnId);
@@ -101,6 +63,51 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
             node.style.display = name.includes(filter) ? "flex" : "none";
         });
     }
+
+    document.addEventListener("DOMContentLoaded", () => {
+        // Slider
+        const sliderTrack = document.getElementById('sliderTrack');
+        if(sliderTrack && sliderTrack.children.length > 1) {
+            let index = 0;
+            const count = sliderTrack.children.length;
+            setInterval(() => {
+                index = (index + 1) % count;
+                sliderTrack.style.transform = \`translateX(-\${index * 100}%)\`;
+            }, 3500);
+        }
+
+        // Lazy Stock
+        const apiProducts = document.querySelectorAll(".api-stock-loader");
+        apiProducts.forEach(async (el) => {
+            const id = el.dataset.id;
+            try {
+                const res = await fetch("/check-stock?id=" + id);
+                const text = await res.text();
+                el.innerText = text;
+                if(text.includes("0") || text === "?") { disableProductCard(id); }
+            } catch { el.innerText = "?"; }
+        });
+
+        // Page Loader
+        const loader = document.getElementById('page-loader');
+        document.querySelectorAll('a').forEach(link => {
+            link.addEventListener('click', (e) => {
+                const href = link.getAttribute('href');
+                if (href && !href.startsWith('#') && !href.startsWith('javascript') && !e.ctrlKey && !e.metaKey) {
+                    loader.classList.remove('hidden');
+                }
+            });
+        });
+        document.querySelectorAll('form').forEach(form => {
+            form.addEventListener('submit', () => {
+                if(!form.closest('.modal-content')) { loader.classList.remove('hidden'); }
+            });
+        });
+    });
+    
+    window.addEventListener('pageshow', (event) => {
+        if (event.persisted) { document.getElementById('page-loader').classList.add('hidden'); }
+    });
 
     function disableProductCard(id) {
         const btn = document.getElementById("btn-" + id);
@@ -173,7 +180,7 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
         document.querySelectorAll('.avatar-option').forEach(el => el.classList.remove('ring-4', 'ring-blue-500'));
         document.getElementById('av-' + avatar).classList.add('ring-4', 'ring-blue-500');
     }
-    
+
     function toggleProductInputs() {
         const type = document.getElementById('productType').value;
         document.getElementById('input-manual').style.display = type === 'manual' ? 'block' : 'none';
@@ -184,7 +191,6 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
   <style>
     body { font-family: sans-serif; background-color: #0f172a; color: #e2e8f0; }
     .glass { background: rgba(30, 41, 59, 0.85); backdrop-filter: blur(12px); border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
-    .glass-nav { background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(10px); border-top: 1px solid rgba(255, 255, 255, 0.1); }
     .modal-backdrop { background-color: rgba(0, 0, 0, 0.8); backdrop-filter: blur(4px); }
     .code-box { background-image: radial-gradient(#334155 1px, transparent 1px); background-size: 10px 10px; }
     .marquee-container { overflow: hidden; white-space: nowrap; position: relative; }
@@ -194,9 +200,19 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
     .loader-sm { border: 3px solid rgba(255, 255, 255, 0.3); width: 24px; height: 24px; border-radius: 50%; border-left-color: #ffffff; animation: spin 0.8s linear infinite; }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     #sliderTrack { transition: transform 0.5s ease-in-out; will-change: transform; }
+    .slide-item { min-width: 100%; flex-shrink: 0; }
+    
+    /* FIXED: Robust Bottom Nav Styles */
+    .bottom-nav-container {
+        background: #0f172a; /* Solid dark background */
+        border-top: 1px solid #334155;
+        box-shadow: 0 -4px 20px rgba(0,0,0,0.4);
+    }
   </style>
 </head>
-<body class="min-h-screen flex flex-col relative pb-24"> <div id="page-loader" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm"><div class="loader"></div></div>
+<body class="min-h-screen flex flex-col relative pb-24">
+  
+  <div id="page-loader" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm"><div class="loader"></div></div>
 
   <nav class="glass sticky top-0 z-40">
     <div class="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
@@ -206,23 +222,18 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
       
       <div class="flex gap-3 items-center">
         ${user ? `
-          <div class="hidden md:flex items-center gap-3">
+          <div class="flex items-center gap-3">
               <a href="/deposit" class="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 px-3 py-1 rounded-full transition border border-slate-600 text-sm">
-                 <span class="text-slate-400">Balance:</span>
+                 <span class="hidden md:inline text-slate-400">Balance:</span>
                  <span class="balance-display text-green-400 font-bold">${user.balance.toLocaleString()} Ks</span>
                  <span class="bg-green-600 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">+</span>
               </a>
-              <a href="/history" class="text-slate-300 hover:text-white">History</a>
-              <a href="/profile" class="relative"><div class="w-9 h-9 rounded-md bg-slate-700 flex items-center justify-center text-xl border border-slate-500">${user.avatar || "😎"}</div></a>
-              ${user.isAdmin ? '<a href="/admin" class="text-yellow-400 font-bold">Admin</a>' : ''}
-          </div>
-
-          <div class="md:hidden flex items-center">
-              <a href="/deposit" class="flex items-center gap-2 bg-slate-800/80 px-3 py-1.5 rounded-full border border-slate-600 text-sm backdrop-blur-md">
-                 <span class="balance-display text-green-400 font-bold">${user.balance.toLocaleString()} Ks</span>
-                 <span class="bg-green-600 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">+</span>
+              <a href="/profile" class="hidden md:block relative">
+                <div class="w-9 h-9 rounded-md bg-slate-700 flex items-center justify-center text-xl border border-slate-500 shadow-sm hover:ring-2 ring-blue-500 transition">
+                    ${user.avatar || "😎"}
+                </div>
               </a>
-              ${user.isAdmin ? '<a href="/admin" class="ml-3 text-yellow-400 text-xs font-bold border border-yellow-500/50 px-2 py-1 rounded">Admin</a>' : ''}
+              ${user.isAdmin ? '<a href="/admin" class="hidden md:block text-yellow-400 hover:text-yellow-300 font-semibold text-sm">Admin</a>' : ''}
           </div>
         ` : `
           <a href="/login" class="text-slate-300 hover:text-white">Login</a>
@@ -232,14 +243,14 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
     </div>
   </nav>
 
-  ${bannerText ? `<div class="bg-yellow-500/10 border-b border-yellow-500/20 text-yellow-200 py-2 text-sm"><div class="marquee-container max-w-7xl mx-auto"><div class="marquee-content font-medium tracking-wide">📢 ${bannerText}</div></div></div>` : ''}
+  ${bannerText ? `<div class="bg-yellow-500/10 border-b border-yellow-500/20 text-yellow-200 py-2"><div class="marquee-container max-w-7xl mx-auto"><div class="marquee-content font-medium tracking-wide">📢 ${bannerText}</div></div></div>` : ''}
 
   <main class="flex-grow container mx-auto px-4 py-6">
     ${content}
   </main>
 
   ${user ? `
-  <div class="md:hidden fixed bottom-0 left-0 w-full glass-nav z-50 pb-safe">
+  <div class="md:hidden fixed bottom-0 left-0 w-full z-[50] bottom-nav-container">
       <div class="flex justify-around items-center py-3">
           <a href="/" id="nav-home" class="flex flex-col items-center gap-1 text-slate-500 hover:text-blue-400 transition w-full">
               <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
@@ -305,7 +316,11 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
 </html>
 `;
 
-// (All UI Components below remain EXACTLY the same as before, just included for completeness if you copy-paste the whole file)
+// ... (Keep the rest of your UI components here: ImageSlider, AuthForm, MaintenancePage, ProductCard, HistoryTable, ProfilePage, TransferPage, AdminUserTable, AdminSalesTable)
+// Ensure you copy the REST of the file from the previous correct versions or I can paste the full file if needed.
+// For brevity, I am providing the Critical Layout Update. 
+// PLEASE MAKE SURE to include the other components below Layout in your file.
+
 export const ImageSlider = (images: string[]) => `
 <div class="relative w-full h-48 md:h-64 overflow-hidden rounded-2xl shadow-2xl mb-6 border border-slate-700">
     <div id="sliderTrack" class="flex h-full w-full">
@@ -316,7 +331,7 @@ export const ImageSlider = (images: string[]) => `
 `;
 
 export const AuthForm = (type: "Login" | "Register", error?: string) => `
-<div class="max-w-md mx-auto glass p-8 rounded-2xl shadow-2xl mt-10">
+<div class="max-w-md mx-auto glass p-8 rounded-2xl shadow-2xl">
   <h2 class="text-3xl font-bold text-center mb-6 text-white">${type}</h2>
   ${error ? `<div class="bg-red-500/20 border border-red-500 text-red-200 p-3 rounded mb-4 text-center">${error}</div>` : ''}
   <form method="POST" class="space-y-4">
@@ -336,16 +351,50 @@ export const ProductCard = (p: Product) => {
   const manualStock = p.stock ? p.stock.length : 0;
   const stockDisplay = isManual ? `Stock: ${manualStock}` : `Stock: <span class="api-stock-loader animate-pulse" data-id="${p.id}">...</span>`;
   const isDisabled = isManual && manualStock === 0;
-  const imageHtml = p.imageUrl ? `<img src="${p.imageUrl}" class="w-24 h-24 rounded-lg object-cover border border-slate-700 shadow-md" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="w-24 h-24 rounded-lg bg-slate-800 items-center justify-center text-3xl hidden border border-slate-700 shadow-md">🎮</div>` : `<div class="w-24 h-24 rounded-lg bg-slate-800 flex items-center justify-center text-3xl border border-slate-700 shadow-md">🎮</div>`;
-  const priceDisplay = (p.originalPrice && p.originalPrice > p.price) ? `<span class="text-xs text-slate-500 line-through mr-1 font-medium">${p.originalPrice.toLocaleString()} Ks</span><span class="text-xl font-bold text-blue-400">${p.price.toLocaleString()} Ks</span>` : `<div class="text-xl font-bold text-blue-400">${p.price.toLocaleString()} Ks</div>`;
+  
+  const imageHtml = p.imageUrl 
+      ? `<img src="${p.imageUrl}" class="w-24 h-24 rounded-lg object-cover border border-slate-700 shadow-md" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+         <div class="w-24 h-24 rounded-lg bg-slate-800 items-center justify-center text-3xl hidden border border-slate-700 shadow-md">🎮</div>`
+      : `<div class="w-24 h-24 rounded-lg bg-slate-800 flex items-center justify-center text-3xl border border-slate-700 shadow-md">🎮</div>`;
 
-  return `<div class="product-card glass rounded-xl overflow-hidden hover:shadow-2xl hover:shadow-blue-500/10 transition transform hover:-translate-y-1 duration-300 p-4" data-name="${p.name}"><div class="flex gap-4"><div class="flex-shrink-0">${imageHtml}</div><div class="flex-grow flex flex-col justify-between"><div><div class="flex justify-between items-start"><h3 class="text-lg font-bold text-white leading-tight">${p.name}</h3><span id="badge-${p.id}" class="text-[10px] px-2 py-1 rounded whitespace-nowrap ${!isDisabled ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">${stockDisplay}</span></div><p class="text-slate-400 text-xs mt-1 line-clamp-2">${p.description}</p></div><div class="mt-2"><div class="mb-2 flex items-baseline">${priceDisplay}</div><button id="btn-${p.id}" ${isDisabled ? 'disabled' : `onclick="confirmBuy('${p.id}', '${p.name}', '${p.price.toLocaleString()}')"`} class="w-full text-sm ${!isDisabled ? 'bg-blue-600 hover:bg-blue-500' : 'bg-slate-700 cursor-not-allowed'} text-white font-bold py-2 rounded-lg transition flex justify-center items-center gap-2">${isDisabled ? 'Out of Stock' : '⚡ Buy Now'}</button></div></div></div></div>`;
+  const priceDisplay = (p.originalPrice && p.originalPrice > p.price) 
+      ? `<span class="text-xs text-slate-500 line-through mr-1 font-medium">${p.originalPrice.toLocaleString()} Ks</span><span class="text-xl font-bold text-blue-400">${p.price.toLocaleString()} Ks</span>`
+      : `<div class="text-xl font-bold text-blue-400">${p.price.toLocaleString()} Ks</div>`;
+
+  return `
+  <div class="product-card glass rounded-xl overflow-hidden hover:shadow-2xl hover:shadow-blue-500/10 transition transform hover:-translate-y-1 duration-300 p-4" data-name="${p.name}">
+    <div class="flex gap-4">
+        <div class="flex-shrink-0">${imageHtml}</div>
+        <div class="flex-grow flex flex-col justify-between">
+            <div>
+                <div class="flex justify-between items-start">
+                    <h3 class="text-lg font-bold text-white leading-tight">${p.name}</h3>
+                    <span id="badge-${p.id}" class="text-[10px] px-2 py-1 rounded whitespace-nowrap ${!isDisabled ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">${stockDisplay}</span>
+                </div>
+                <p class="text-slate-400 text-xs mt-1 line-clamp-2">${p.description}</p>
+            </div>
+            <div class="mt-2">
+                <div class="mb-2 flex items-baseline">${priceDisplay}</div>
+                <button id="btn-${p.id}" ${isDisabled ? 'disabled' : `onclick="confirmBuy('${p.id}', '${p.name}', '${p.price.toLocaleString()}')"`} class="w-full text-sm ${!isDisabled ? 'bg-blue-600 hover:bg-blue-500' : 'bg-slate-700 cursor-not-allowed'} text-white font-bold py-2 rounded-lg transition flex justify-center items-center gap-2">${isDisabled ? 'Out of Stock' : '⚡ Buy Now'}</button>
+            </div>
+        </div>
+    </div>
+  </div>
+  `;
 };
 
 export const HistoryTable = (transactions: Transaction[], nextCursor: string | null, activeTab: string) => {
     let rows = "";
     if (transactions.length === 0) { rows = `<tr><td colspan="4" class="p-8 text-center text-slate-500 flex flex-col items-center"><span class="text-4xl mb-2">📜</span><span>No ${activeTab} history found.</span></td></tr>`; } 
-    else { rows = transactions.map(t => { let color = 'text-white'; let sign = ''; let bg = 'bg-slate-700'; if(t.type === 'purchase' || t.type === 'transfer_sent') { color = 'text-red-400'; sign = '-'; bg = 'bg-red-500/20'; } else if (t.type === 'topup' || t.type === 'voucher' || t.type === 'bonus' || t.type === 'transfer_received' || t.type === 'refund') { color = 'text-green-400'; sign = '+'; bg = 'bg-green-500/20'; } const dateStr = new Date(t.date).toLocaleString("en-US", { timeZone: "Asia/Yangon" }); return `<tr class="border-b border-slate-700 hover:bg-slate-800/50 transition"><td class="p-4 text-sm text-slate-400">${dateStr}</td><td class="p-4"><span class="px-2 py-1 rounded text-[10px] font-bold uppercase ${bg} ${color}">${t.type.replace('_', ' ')}</span></td><td class="p-4 font-medium text-white">${t.itemName} ${t.detail ? `<div class="text-xs text-slate-500 mt-1 font-mono truncate w-32 md:w-64">${t.detail.substring(0, 30)}...</div>` : ''}</td><td class="p-4 text-right ${color} font-bold">${sign}${t.amount.toLocaleString()} Ks</td></tr>`; }).join(""); }
+    else { 
+        rows = transactions.map(t => {
+            let color = 'text-white'; let sign = ''; let bg = 'bg-slate-700';
+            if(t.type === 'purchase' || t.type === 'transfer_sent') { color = 'text-red-400'; sign = '-'; bg = 'bg-red-500/20'; }
+            else if (t.type === 'topup' || t.type === 'voucher' || t.type === 'bonus' || t.type === 'transfer_received' || t.type === 'refund') { color = 'text-green-400'; sign = '+'; bg = 'bg-green-500/20'; }
+            const dateStr = new Date(t.date).toLocaleString("en-US", { timeZone: "Asia/Yangon" });
+            return `<tr class="border-b border-slate-700 hover:bg-slate-800/50 transition"><td class="p-4 text-sm text-slate-400">${dateStr}</td><td class="p-4"><span class="px-2 py-1 rounded text-[10px] font-bold uppercase ${bg} ${color}">${t.type.replace('_', ' ')}</span></td><td class="p-4 font-medium text-white">${t.itemName} ${t.detail ? `<div class="text-xs text-slate-500 mt-1 font-mono truncate w-32 md:w-64">${t.detail.substring(0, 30)}...</div>` : ''}</td><td class="p-4 text-right ${color} font-bold">${sign}${t.amount.toLocaleString()} Ks</td></tr>`;
+        }).join(""); 
+    }
     const tabs = [{ id: 'all', label: 'All' }, { id: 'purchase', label: 'Purchases' }, { id: 'topup', label: 'Top Up' }];
     const tabsHtml = tabs.map(t => `<a href="/history?filter=${t.id}" class="flex-1 py-2 text-center text-sm font-bold rounded-lg transition ${activeTab === t.id ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}">${t.label}</a>`).join("");
     return `<div class="flex gap-2 mb-6 bg-slate-900/50 p-1 rounded-xl">${tabsHtml}</div><div class="glass rounded-xl overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-left"><thead class="bg-slate-800 text-slate-300 uppercase text-xs"><tr><th class="p-4">Date</th><th class="p-4">Type</th><th class="p-4">Description</th><th class="p-4 text-right">Amount</th></tr></thead><tbody class="divide-y divide-slate-700">${rows}</tbody></table></div>${nextCursor ? `<div class="p-4 text-center border-t border-slate-700"><a href="/history?filter=${activeTab}&cursor=${nextCursor}" class="inline-block bg-slate-700 hover:bg-slate-600 text-white px-6 py-2 rounded transition">Load Next 10 Entries</a></div>` : ''}</div>`;
@@ -361,9 +410,11 @@ export const ProfilePage = (user: User, bonusConfig: {active: boolean, amount: n
                     <h2 class="text-2xl font-bold text-white mb-1">${user.username}</h2>
                     <p class="text-green-400 font-bold text-lg">${user.balance.toLocaleString()} Ks</p>
                     <div class="mt-6 flex justify-center gap-3">
-                         ${user.isAdmin ? `<a href="/admin" class="mt-4 inline-block text-yellow-400 text-sm font-bold border border-yellow-500/30 px-4 py-1 rounded-full">Admin</a>` : ''}
+                         <a href="/history" class="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg text-sm">History</a>
+                         <a href="/transfer" class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm flex items-center gap-1"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path></svg> Transfer</a>
                          <a href="/logout" class="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-lg text-sm">Logout</a>
                     </div>
+                    ${user.isAdmin ? `<a href="/admin" class="mt-4 inline-block text-yellow-400 text-sm font-bold border border-yellow-500/30 px-4 py-1 rounded-full">Access Admin Panel</a>` : ''}
                 </div>
                 ${bonusConfig.active && !user.hasClaimedBonus ? `<div class="glass p-6 rounded-xl border-l-4 border-pink-500 bg-pink-900/20 flex justify-between items-center"><div><h3 class="text-lg font-bold text-white">🎁 Welcome Bonus</h3><p class="text-pink-200 text-sm">Claim your ${bonusConfig.amount.toLocaleString()} Ks gift!</p></div><form action="/profile/claim-bonus" method="POST" style="margin:0"><button class="bg-pink-600 hover:bg-pink-500 text-white font-bold px-4 py-2 rounded-lg shadow-lg animate-pulse">Claim</button></form></div>` : ''}
                 <div class="glass p-8 rounded-2xl border-t-4 border-purple-500 w-full"><h3 class="text-xl font-bold text-white mb-4 flex items-center gap-2">🎟️ Redeem Voucher</h3><form action="/redeem" method="POST" class="flex gap-2"><input name="code" placeholder="Code" required class="flex-1 bg-slate-900 border border-slate-600 rounded-lg p-3 text-white outline-none uppercase min-w-0"><button class="bg-purple-600 hover:bg-purple-500 text-white font-bold px-4 rounded-lg transition">Claim</button></form></div>
@@ -398,7 +449,17 @@ export const AdminUserTable = (usersHtml: string, nextCursor: string | null) => 
 </div>`;
 
 export const AdminSalesTable = (sales: GlobalSale[], nextCursor: string | null) => {
-    let rows = sales.map(s => `<tr class="border-b border-slate-700 hover:bg-slate-800/50 text-sm"><td class="p-3 text-slate-400">${new Date(s.date).toLocaleString("en-US", { timeZone: "Asia/Yangon" })}</td><td class="p-3 text-white font-bold">${s.username}</td><td class="p-3">${s.itemName}</td><td class="p-3 text-green-400">${s.amount}</td><td class="p-3">${s.refunded ? '<span class="text-red-500 text-xs font-bold">REFUNDED</span>' : `<form action="/admin/refund" method="POST" onsubmit="return confirm('Refund ${s.username}?')"><input type="hidden" name="username" value="${s.username}"><input type="hidden" name="date" value="${s.date}"><input type="hidden" name="id" value="${s.id}"><button class="text-xs bg-red-600 hover:bg-red-500 text-white px-2 py-1 rounded">Refund</button></form>`}</td></tr>`).join("");
+    let rows = sales.map(s => `
+        <tr class="border-b border-slate-700 hover:bg-slate-800/50 text-sm">
+            <td class="p-3 text-slate-400">${new Date(s.date).toLocaleString("en-US", { timeZone: "Asia/Yangon" })}</td>
+            <td class="p-3 text-white font-bold">${s.username}</td>
+            <td class="p-3">${s.itemName}</td>
+            <td class="p-3 text-green-400">${s.amount}</td>
+            <td class="p-3">
+                ${s.refunded ? '<span class="text-red-500 text-xs font-bold">REFUNDED</span>' 
+                : `<form action="/admin/refund" method="POST" onsubmit="return confirm('Refund ${s.username}?')"><input type="hidden" name="username" value="${s.username}"><input type="hidden" name="date" value="${s.date}"><input type="hidden" name="id" value="${s.id}"><button class="text-xs bg-red-600 hover:bg-red-500 text-white px-2 py-1 rounded">Refund</button></form>`}
+            </td>
+        </tr>`).join("");
     if(sales.length === 0) rows = `<tr><td colspan="5" class="p-4 text-center text-slate-500">No recent sales.</td></tr>`;
     return `<div class="glass rounded-xl overflow-hidden mt-6"><div class="px-6 py-4 border-b border-slate-700"><h3 class="text-lg font-bold text-white">🛒 Recent Sales Log</h3></div><div class="overflow-x-auto"><table class="w-full text-left"><thead class="bg-slate-800 text-slate-300 uppercase text-xs"><tr><th class="p-3">Date</th><th class="p-3">User</th><th class="p-3">Item</th><th class="p-3">Price</th><th class="p-3">Action</th></tr></thead><tbody class="divide-y divide-slate-700">${rows}</tbody></table></div>${nextCursor ? `<div class="p-3 text-center border-t border-slate-700"><a href="/admin?sale_cursor=${nextCursor}" class="text-blue-400 hover:underline">Load More Sales</a></div>` : ''}</div>`;
 }
