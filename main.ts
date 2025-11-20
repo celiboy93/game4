@@ -5,16 +5,39 @@ import { Layout, AuthForm, ProductCard, HistoryTable, MaintenancePage, ProfilePa
 
 const app = new Hono();
 
-// ... (Keep helper functions encodeCursor, decodeCursor, getApiAvailableStock, getSessionUser) ...
+// Safe Cursor Helpers
 function encodeCursor(cursor: any) { try { return btoa(encodeURIComponent(JSON.stringify(cursor))); } catch { return null; } }
 function decodeCursor(str: string) { try { return JSON.parse(decodeURIComponent(atob(str))); } catch { return undefined; } }
-async function getApiAvailableStock(p: Product): Promise<number | string> { if (!p.apiUrl) return 0; try { const res = await fetch(p.apiUrl); if (!res.ok) return "?"; const text = await res.text(); const json = JSON.parse(text); const items = Array.isArray(json) ? json : [json]; let count = 0; for (const item of items) { const expDate = new Date(item.expiration_date); const now = new Date(); now.setHours(0,0,0,0); if (expDate < now) continue; if (item.android_id_1 && item.android_id_1.trim() !== "" && item.android_id_2 && item.android_id_2.trim() !== "") continue; if (await isKeySold(item.key)) continue; count++; } return count; } catch { return "?"; } }
-async function getSessionUser(c: any) { const sessionUser = getCookie(c, "session_user"); if (!sessionUser) return null; return await getUser(sessionUser); }
 
-// ... (Routes /, /transfer, /profile, /buy, /login, /register, /logout, /admin, /admin/...) ...
-// Just paste the previous main.ts content here, EXCEPT the 2D part below.
+async function getApiAvailableStock(p: Product): Promise<number | string> {
+    if (!p.apiUrl) return 0;
+    try {
+        const res = await fetch(p.apiUrl);
+        if (!res.ok) return "?";
+        const text = await res.text();
+        const json = JSON.parse(text);
+        const items = Array.isArray(json) ? json : [json];
+        let count = 0;
+        for (const item of items) {
+            const expDate = new Date(item.expiration_date);
+            const now = new Date();
+            now.setHours(0,0,0,0);
+            if (expDate < now) continue;
+            if (item.android_id_1 && item.android_id_1.trim() !== "" && item.android_id_2 && item.android_id_2.trim() !== "") continue;
+            if (await isKeySold(item.key)) continue; 
+            count++;
+        }
+        return count;
+    } catch { return "?"; }
+}
 
-// --- PASTE THIS 2D SECTION IN MAIN.TS ---
+async function getSessionUser(c: any) {
+  const sessionUser = getCookie(c, "session_user");
+  if (!sessionUser) return null;
+  return await getUser(sessionUser);
+}
+
+// --- Routes ---
 
 app.get("/", async (c) => {
   const user = await getSessionUser(c);
@@ -35,12 +58,13 @@ app.get("/", async (c) => {
   `, user, config.banner));
 });
 
+// 2D Page
 app.get("/2d", async (c) => {
     const user = await getSessionUser(c);
     if (!user) return c.redirect("/login");
     
     // Fetch User's Bets for Today
-    const today = new Date().toLocaleDateString("en-CA");
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Yangon" });
     const iter = kv.list<TwoDBet>({ prefix: ["2d_bets", today, user.username] });
     const bets: TwoDBet[] = [];
     for await (const entry of iter) bets.push(entry.value);
@@ -48,22 +72,22 @@ app.get("/2d", async (c) => {
     return c.html(TwoDPage(user, bets));
 });
 
+// 2D Bet Action
 app.post("/2d/bet", async (c) => {
     const user = await getSessionUser(c);
     if (!user) return c.redirect("/login");
     const body = await c.req.parseBody();
-    const number = (body.number as string).padStart(2, '0'); // Ensure "5" becomes "05"
+    const number = (body.number as string).padStart(2, '0');
     const amount = Number(body.amount);
 
     if (amount < 100) return c.html(Layout("Error", `<div class="p-8 text-center"><h2 class="text-red-400 text-xl mb-4">Minimum bet is 100 Ks</h2><a href="/2d" class="text-blue-400">Back</a></div>`, user));
     if (user.balance < amount) return c.html(Layout("Error", `<div class="p-8 text-center"><h2 class="text-red-400 text-xl mb-4">Insufficient Balance</h2><a href="/deposit" class="bg-blue-600 px-4 py-2 rounded text-white">Top Up</a></div>`, user));
 
-    // Determine Session (Morning/Evening)
-    const hour = new Date().getHours();
-    // Simple logic: Before 12PM = Morning, After = Evening (You can refine this)
+    // Determine Session (Myanmar Time)
+    const now = new Date().toLocaleString("en-US", { timeZone: "Asia/Yangon" });
+    const hour = new Date(now).getHours();
     const session = hour < 12 ? "Morning" : "Evening"; 
 
-    // Deduct Balance & Save Bet
     const res = await kv.atomic()
         .check(await kv.get(["users", user.username]))
         .set(["users", user.username], { ...user, balance: user.balance - amount })
@@ -77,28 +101,24 @@ app.post("/2d/bet", async (c) => {
     return c.redirect("/2d");
 });
 
+// API Proxies
 app.get("/api/2d-proxy", async (c) => {
     const config = await getConfig();
-    // 1. Manual Override
     if (config.manual2d && config.manual2d.trim() !== "") {
         return c.json({ live: { twod: config.manual2d, set: "MANUAL", value: "ADMIN", time: "Live" } });
     }
-    // 2. API Fetch
     try {
         const res = await fetch("https://api.thaistock2d.com/live");
         const data = await res.json();
         
-        // If Closed, try saving to history
         if (!data.live || !data.live.twod) {
-             // ... (Existing logic to fetch history fallback) ...
-             // Simplified for brevity, same as before
              const historyRes = await fetch("https://api.thaistock2d.com/2d_result");
              const historyData = await historyRes.json();
              if (historyData && historyData.length > 0) {
                  const last = historyData[0];
-                 // AUTO SAVE HISTORY TO DB (Only if not exists)
+                 // Save latest result to DB for checking winners later
                  await save2DResult({
-                     date: last.date, time: last.open_time, set: last.set, value: last.value, twod: last.twod, timestamp: Date.now()
+                     date: last.date, time: last.open_time, set: last.set, value: last.value, twod: last.twod
                  });
                  return c.json({ live: { twod: last.twod, set: last.set, value: last.value, time: `Closed (${last.open_time})` } });
              }
@@ -108,22 +128,12 @@ app.get("/api/2d-proxy", async (c) => {
 });
 
 app.get("/api/2d-history", async (c) => {
-    const month = c.req.query("month"); // YYYY-MM
-    // 1. Try fetching from our DB first (Not fully implemented in UI/DB yet for querying by month efficiently without secondary index, so we fallback to API for now for simplicity)
-    // But since user wants "Permanent History", we should ideally use KV.
-    // For this MVP, let's stick to External API for past results to show "real" history immediately.
-    // IF you want *ONLY* your recorded history, we need to scan KV.
-    
     try {
         const res = await fetch("https://api.thaistock2d.com/2d_result");
         const data = await res.json();
-        // Filter by month if needed, or just return list
-        return c.json(data); 
+        return c.json(data.slice(0, 20)); 
     } catch { return c.json([]); }
 });
-
-// ... (Keep all other routes: /transfer, /profile, /buy, /login, /register, /logout, /admin, etc. EXACTLY AS BEFORE) ...
-// Copy the rest from the previous working main.ts
 
 app.get("/transfer", async (c) => {
     const user = await getSessionUser(c);
