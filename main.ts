@@ -102,7 +102,7 @@ app.post("/2d/bet", async (c) => {
     if (amount < 100) return c.json({ success: false, message: "Minimum bet is 100 Ks" });
     if (user.balance < amount) return c.json({ success: false, message: "Insufficient Balance" });
 
-    // Time Check
+    // Time Check (Myanmar Time)
     const now = new Date().toLocaleString("en-US", { timeZone: "Asia/Yangon" });
     const dateObj = new Date(now);
     const hour = dateObj.getHours();
@@ -112,36 +112,44 @@ app.post("/2d/bet", async (c) => {
     let session: "Morning" | "Evening" | null = null;
     if (timeValue <= 1145) session = "Morning";
     else if (timeValue >= 1201 && timeValue <= 1558) session = "Evening";
-    else return c.json({ success: false, message: "Market Closed" });
+    else return c.json({ success: false, message: "Market Closed (Morning < 11:45, Evening < 3:58)" });
 
-    // Number Logic
+    // --- Number Expansion Logic ---
     let numbersToBet: string[] = [];
-    if (type === 'double') { for(let i=0; i<10; i++) numbersToBet.push(`${i}${i}`); } 
-    else if (type === 'head') { if(!/^\d$/.test(rawInput)) return c.json({ success: false, message: "Invalid Head" }); for(let i=0; i<10; i++) numbersToBet.push(`${rawInput}${i}`); } 
-    else if (type === 'tail') { if(!/^\d$/.test(rawInput)) return c.json({ success: false, message: "Invalid Tail" }); for(let i=0; i<10; i++) numbersToBet.push(`${i}${rawInput}`); } 
+    if (type === 'double') { 
+        for(let i=0; i<10; i++) numbersToBet.push(`${i}${i}`); 
+    } 
+    else if (type === 'head') { 
+        if(!/^\d$/.test(rawInput)) return c.json({ success: false, message: "Invalid Head input (0-9)" }); 
+        for(let i=0; i<10; i++) numbersToBet.push(`${rawInput}${i}`); 
+    } 
+    else if (type === 'tail') { 
+        if(!/^\d$/.test(rawInput)) return c.json({ success: false, message: "Invalid Tail input (0-9)" }); 
+        for(let i=0; i<10; i++) numbersToBet.push(`${i}${rawInput}`); 
+    } 
     else {
-        if(!/^\d{2}$/.test(rawInput)) return c.json({ success: false, message: "Invalid Number" });
+        if(!/^\d{2}$/.test(rawInput)) return c.json({ success: false, message: "Invalid Number (00-99)" });
         numbersToBet.push(rawInput);
-        if (type === 'r') { const rev = rawInput.split('').reverse().join(''); if (rev !== rawInput) numbersToBet.push(rev); }
+        if (type === 'r') { 
+            const rev = rawInput.split('').reverse().join(''); 
+            if (rev !== rawInput) numbersToBet.push(rev); // R logic
+        }
     }
 
     const totalCost = numbersToBet.length * amount;
-    if (user.balance < totalCost) return c.json({ success: false, message: `Need ${totalCost.toLocaleString()} Ks` });
+    if (user.balance < totalCost) return c.json({ success: false, message: `Insufficient Balance. Total Cost: ${totalCost.toLocaleString()} Ks` });
 
+    // Atomic Deduction
     const res = await kv.atomic().check(await kv.get(["users", user.username])).set(["users", user.username], { ...user, balance: user.balance - totalCost }).commit();
     if (!res.ok) return c.json({ success: false, message: "Transaction Failed" });
 
+    // Save all expanded bets
     for (const num of numbersToBet) { await placeBet(user.username, num, amount, session); }
+    
     await addHistory(user.username, "bet_2d", `2D Bet (${numbersToBet.length})`, totalCost, `Session: ${session}`);
 
     return c.json({ success: true, newBalance: user.balance - totalCost, message: "Bet Placed!" });
 });
-    const user = await getSessionUser(c);
-    if (!user) return c.redirect("/login");
-    const body = await c.req.parseBody();
-    const amount = Number(body.amount);
-    const type = body.betType as string;
-    let rawInput = (body.number as string || "").trim();
 
     if (amount < 100) return c.html(Layout("Error", `<div class="p-8 text-center"><h2 class="text-red-400 text-xl mb-4">Minimum bet is 100 Ks</h2><a href="/2d" class="text-blue-400">Back</a></div>`, user));
     if (user.balance < amount) return c.html(Layout("Error", `<div class="p-8 text-center"><h2 class="text-red-400 text-xl mb-4">Insufficient Balance</h2><a href="/deposit" class="bg-blue-600 px-4 py-2 rounded text-white">Top Up</a></div>`, user));
