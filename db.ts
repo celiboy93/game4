@@ -16,11 +16,15 @@ export interface Product {
   name: string;
   description: string;
   price: number;
-  type: "manual" | "api";
-  stock: string[]; 
-  apiUrl?: string;
+  type: "manual" | "api" | "shared"; // Added 'shared'
+  stock: string[]; // Used for 'manual'
+  apiUrl?: string; // Used for 'api'
   imageUrl?: string;
-  originalPrice?: number; // New: Discount Logic
+  originalPrice?: number;
+  // New fields for Shared Type
+  sharedData?: string;      // The single key code
+  sharedCapacity?: number;  // Max users (e.g. 50)
+  sharedSold?: number;      // Current sold count
 }
 
 export interface Transaction {
