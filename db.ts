@@ -53,7 +53,6 @@ export async function markKeyAsSold(key: string, username: string) {
   await kv.set(["sold_keys", key], { soldTo: username, date: Date.now() });
 }
 
-// Config Helpers (Updated)
 export async function getConfig() {
     const banner = await kv.get<string>(["config", "banner"]);
     const payment = await kv.get<string>(["config", "payment"]);
