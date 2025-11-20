@@ -85,7 +85,6 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
              <span class="text-green-400 font-bold">${user.balance.toLocaleString()} Ks</span>
              <span class="bg-green-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">+</span>
           </a>
-
           <a href="/history" class="text-slate-300 hover:text-white font-medium">History</a>
           ${user.isAdmin ? '<a href="/admin" class="text-yellow-400 hover:text-yellow-300 font-semibold">Admin</a>' : ''}
           <a href="/logout" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm transition">Logout</a>
@@ -131,6 +130,28 @@ export const AuthForm = (type: "Login" | "Register", error?: string) => `
     ${type === 'Login' ? 'Don\'t have an account? <a href="/register" class="text-blue-400">Register</a>' : 'Already have an account? <a href="/login" class="text-blue-400">Login</a>'}
   </p>
 </div>
+`;
+
+// New: Maintenance Page Design
+export const MaintenancePage = () => `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Maintenance</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>body { font-family: sans-serif; background-color: #0f172a; color: #e2e8f0; }</style>
+</head>
+<body class="h-screen flex flex-col items-center justify-center p-4 text-center">
+    <div class="bg-slate-800 p-8 rounded-2xl border border-slate-700 shadow-2xl max-w-md w-full">
+        <div class="text-6xl mb-4">🚧</div>
+        <h1 class="text-3xl font-bold text-white mb-2">Under Maintenance</h1>
+        <p class="text-slate-400 mb-6">We are currently updating our server. Please check back later.</p>
+        <a href="/login" class="text-sm text-slate-600 hover:text-slate-400">Admin Login</a>
+    </div>
+</body>
+</html>
 `;
 
 export const ProductCard = (p: Product) => {
