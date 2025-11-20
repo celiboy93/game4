@@ -179,11 +179,22 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
   </style>
 </head>
 <body class="min-h-screen flex flex-col relative pb-24">
+  
   <div id="page-loader" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm"><div class="loader"></div></div>
 
-  <nav class="glass sticky top-0 z-40 border-b border-slate-700">
+  <nav class="glass sticky top-0 z-40">
     <div class="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
-      <a href="/" class="text-2xl font-bold text-blue-500 hover:text-blue-400 transition flex items-center gap-2"><span>🎮</span> <span class="hidden md:inline">GameStore</span></a>
+      <a href="/" class="flex items-center gap-2 group">
+        <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-500/20 border border-white/10">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+            </svg>
+        </div>
+        <span class="text-lg font-extrabold tracking-wide text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-400 drop-shadow-sm uppercase">
+            KAIRIZY STORE
+        </span>
+      </a>
+      
       <div class="flex gap-3 items-center">
         ${user ? `
           <div class="flex items-center gap-3">
@@ -192,10 +203,17 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
                  <span class="balance-display text-green-400 font-bold">${user.balance.toLocaleString()} Ks</span>
                  <span class="bg-green-600 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">+</span>
               </a>
-              <a href="/profile" class="hidden md:block relative"><div class="w-9 h-9 rounded-md bg-slate-700 flex items-center justify-center text-xl border border-slate-500 shadow-sm hover:ring-2 ring-blue-500 transition">${user.avatar || "😎"}</div></a>
+              <a href="/profile" class="hidden md:block relative">
+                <div class="w-9 h-9 rounded-md bg-slate-700 flex items-center justify-center text-xl border border-slate-500 shadow-sm hover:ring-2 ring-blue-500 transition">
+                    ${user.avatar || "😎"}
+                </div>
+              </a>
               ${user.isAdmin ? '<a href="/admin" class="hidden md:block text-yellow-400 hover:text-yellow-300 font-semibold text-sm">Admin</a>' : ''}
           </div>
-        ` : `<a href="/login" class="text-slate-300 hover:text-white text-sm font-medium">Login</a><a href="/register" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-bold shadow-lg shadow-blue-500/20 transition">Register</a>`}
+        ` : `
+          <a href="/login" class="text-slate-300 hover:text-white text-sm font-medium">Login</a>
+          <a href="/register" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-bold shadow-lg shadow-blue-500/20 transition">Register</a>
+        `}
       </div>
     </div>
   </nav>
@@ -209,27 +227,68 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
   ${user ? `
   <div class="md:hidden fixed bottom-0 left-0 w-full z-[50] bottom-nav-container">
       <div class="flex justify-around items-center py-3">
-          <a href="/" id="nav-home" class="flex flex-col items-center gap-1 text-slate-500 hover:text-blue-400 transition w-full"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg><span class="text-[10px] font-medium">Home</span></a>
-          <a href="/history" id="nav-history" class="flex flex-col items-center gap-1 text-slate-500 hover:text-blue-400 transition w-full"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg><span class="text-[10px] font-medium">History</span></a>
-          <a href="/profile" id="nav-profile" class="flex flex-col items-center gap-1 text-slate-500 hover:text-blue-400 transition w-full"><div class="w-6 h-6 flex items-center justify-center text-lg leading-none">${user.avatar || "👤"}</div><span class="text-[10px] font-medium">Profile</span></a>
+          <a href="/" id="nav-home" class="flex flex-col items-center gap-1 text-slate-500 hover:text-blue-400 transition w-full">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
+              <span class="text-[10px] font-medium">Home</span>
+          </a>
+          <a href="/history" id="nav-history" class="flex flex-col items-center gap-1 text-slate-500 hover:text-blue-400 transition w-full">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+              <span class="text-[10px] font-medium">History</span>
+          </a>
+          <a href="/profile" id="nav-profile" class="flex flex-col items-center gap-1 text-slate-500 hover:text-blue-400 transition w-full">
+              <div class="w-6 h-6 flex items-center justify-center text-lg leading-none">${user.avatar || "👤"}</div>
+              <span class="text-[10px] font-medium">Profile</span>
+          </a>
       </div>
   </div>
   ` : ''}
 
   <div id="confirmModal" class="hidden fixed inset-0 z-[60] flex items-center justify-center modal-backdrop px-4 modal-content">
-    <div class="bg-[#1e293b] border border-slate-600 rounded-2xl p-6 max-w-sm w-full shadow-2xl transform transition-all scale-100 relative"><h3 class="text-xl font-bold text-white mb-2">Confirm Purchase?</h3><p class="text-slate-400 mb-4">Are you sure you want to buy <br><span id="confirmName" class="text-blue-400 font-bold"></span> for <span id="confirmPrice" class="text-green-400 font-bold"></span>?</p><div class="flex gap-3"><button onclick="closeConfirmModal()" class="flex-1 bg-slate-700 hover:bg-slate-600 text-white py-2 rounded-lg transition">Cancel</button><button id="confirmBtnAction" onclick="processPurchase()" class="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 rounded-lg transition shadow-lg shadow-blue-500/20">Yes, Buy</button></div></div>
-  </div>
-  <div id="successModal" class="hidden fixed inset-0 z-[60] flex items-center justify-center modal-backdrop px-4 modal-content">
-    <div class="bg-[#1e293b] border border-green-500/30 rounded-2xl p-0 max-w-md w-full shadow-2xl overflow-hidden relative"><button onclick="closeSuccessModal()" class="absolute top-3 right-3 text-slate-400 hover:text-white text-xl">&times;</button><div class="bg-green-600/20 p-6 text-center border-b border-green-500/20"><div class="text-5xl mb-2">🎉</div><h2 class="text-2xl font-bold text-green-400">Successful!</h2></div><div class="p-6"><p class="text-slate-400 text-sm mb-2 uppercase tracking-wider font-semibold text-center">Your Code:</p><div class="code-box bg-slate-900 border-2 border-dashed border-slate-600 rounded-xl p-4 mb-6 relative"><pre id="purchasedCode" class="font-mono text-green-400 whitespace-pre-wrap break-all text-base leading-relaxed text-center"></pre></div><div class="flex flex-col gap-3"><button id="copyBtnModal" onclick="copyPurchasedCode()" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2 shadow-lg">Copy Code</button><button onclick="closeSuccessModal()" class="w-full bg-slate-700 hover:bg-slate-600 text-white py-3 rounded-xl transition">Close</button></div></div></div>
-  </div>
-  <div id="errorModal" class="hidden fixed inset-0 z-[60] flex items-center justify-center modal-backdrop px-4 modal-content">
-    <div class="bg-[#1e293b] border border-red-500/30 rounded-2xl p-0 max-w-sm w-full shadow-2xl overflow-hidden relative"><button onclick="closeErrorModal()" class="absolute top-3 right-3 text-slate-400 hover:text-white text-xl font-bold z-10 w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10">&times;</button><div class="bg-red-600/20 p-6 text-center border-b border-red-500/20"><div class="text-5xl mb-2">⚠️</div><h2 class="text-2xl font-bold text-red-400">Oops!</h2></div><div class="p-6 text-center"><p id="errorMessage" class="text-slate-300 mb-6 text-lg font-medium">Something went wrong.</p><div id="errorBtnContainer"></div></div></div>
+    <div class="bg-[#1e293b] border border-slate-600 rounded-2xl p-6 max-w-sm w-full shadow-2xl transform transition-all scale-100 relative">
+        <h3 class="text-xl font-bold text-white mb-2">Confirm Purchase?</h3>
+        <p class="text-slate-400 mb-4">Are you sure you want to buy <br><span id="confirmName" class="text-blue-400 font-bold"></span> for <span id="confirmPrice" class="text-green-400 font-bold"></span>?</p>
+        <div class="flex gap-3">
+            <button onclick="closeConfirmModal()" class="flex-1 bg-slate-700 hover:bg-slate-600 text-white py-2 rounded-lg transition">Cancel</button>
+            <button id="confirmBtnAction" onclick="processPurchase()" class="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 rounded-lg transition shadow-lg shadow-blue-500/20">Yes, Buy</button>
+        </div>
+    </div>
   </div>
 
-  <footer class="text-center text-slate-600 py-6 text-sm">
-    &copy; 2025 Digital Shop System
-  </footer>
-</body>
+  <div id="successModal" class="hidden fixed inset-0 z-[60] flex items-center justify-center modal-backdrop px-4 modal-content">
+    <div class="bg-[#1e293b] border border-green-500/30 rounded-2xl p-0 max-w-md w-full shadow-2xl overflow-hidden relative">
+        <button onclick="closeSuccessModal()" class="absolute top-3 right-3 text-slate-400 hover:text-white text-xl">&times;</button>
+        <div class="bg-green-600/20 p-6 text-center border-b border-green-500/20">
+            <div class="text-5xl mb-2">🎉</div>
+            <h2 class="text-2xl font-bold text-green-400">Successful!</h2>
+        </div>
+        <div class="p-6">
+            <p class="text-slate-400 text-sm mb-2 uppercase tracking-wider font-semibold text-center">Your Code:</p>
+            <div class="code-box bg-slate-900 border-2 border-dashed border-slate-600 rounded-xl p-4 mb-6 relative">
+                 <pre id="purchasedCode" class="font-mono text-green-400 whitespace-pre-wrap break-all text-base leading-relaxed text-center"></pre>
+            </div>
+            <div class="flex flex-col gap-3">
+                <button id="copyBtnModal" onclick="copyPurchasedCode()" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2 shadow-lg">Copy Code</button>
+                <button onclick="closeSuccessModal()" class="w-full bg-slate-700 hover:bg-slate-600 text-white py-3 rounded-xl transition">Close</button>
+            </div>
+        </div>
+    </div>
+  </div>
+
+  <div id="errorModal" class="hidden fixed inset-0 z-[60] flex items-center justify-center modal-backdrop px-4 modal-content">
+    <div class="bg-[#1e293b] border border-red-500/30 rounded-2xl p-0 max-w-sm w-full shadow-2xl overflow-hidden relative">
+        <button onclick="closeErrorModal()" class="absolute top-3 right-3 text-slate-400 hover:text-white text-xl font-bold z-10 w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10">&times;</button>
+        <div class="bg-red-600/20 p-6 text-center border-b border-red-500/20">
+            <div class="text-5xl mb-2">⚠️</div>
+            <h2 class="text-2xl font-bold text-red-400">Oops!</h2>
+        </div>
+        <div class="p-6 text-center">
+            <p id="errorMessage" class="text-slate-300 mb-6 text-lg font-medium">Something went wrong.</p>
+            <div id="errorBtnContainer"></div>
+        </div>
+    </div>
+  </div>
+
+  </body>
 </html>
 `;
 
@@ -258,12 +317,28 @@ export const AuthForm = (type: "Login" | "Register", error?: string) => `
 
 export const MaintenancePage = () => `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Maintenance</title><script src="https://cdn.tailwindcss.com"></script><style>body { font-family: sans-serif; background-color: #0f172a; color: #e2e8f0; }</style></head><body class="h-screen flex flex-col items-center justify-center p-4 text-center"><div class="bg-slate-800 p-8 rounded-2xl border border-slate-700 shadow-2xl max-w-md w-full"><div class="text-6xl mb-4">🚧</div><h1 class="text-3xl font-bold text-white mb-2">Under Maintenance</h1><p class="text-slate-400 mb-6">We are currently updating our server. Please check back later.</p><a href="/login" class="text-sm text-slate-600 hover:text-slate-400">Admin Login</a></div></body></html>`;
 
+// FIXED: Product Card with Correct Shared Stock Calculation
 export const ProductCard = (p: Product) => {
-  const isManual = p.type === 'manual';
-  const manualStock = p.stock ? p.stock.length : 0;
-  const stockDisplay = isManual ? `Stock: ${manualStock}` : `Stock: <span class="api-stock-loader animate-pulse" data-id="${p.id}">...</span>`;
-  const isDisabled = isManual && manualStock === 0;
-  
+  let stockDisplay = "Stock: 0";
+  let hasStock = false;
+
+  if (p.type === 'manual') {
+      const count = p.stock ? p.stock.length : 0;
+      stockDisplay = `Stock: ${count}`;
+      hasStock = count > 0;
+  } else if (p.type === 'api') {
+      stockDisplay = `Stock: <span class="api-stock-loader animate-pulse" data-id="${p.id}">...</span>`;
+      hasStock = true; 
+  } else if (p.type === 'shared') {
+      // FIX: Robust calculation for shared stock
+      const capacity = Number(p.sharedCapacity || 0);
+      const sold = Number(p.sharedSold || 0);
+      const remaining = Math.max(0, capacity - sold); // Prevent negative numbers
+      stockDisplay = `Limit: ${remaining}/${capacity}`;
+      hasStock = remaining > 0;
+  }
+
+  const isDisabled = !hasStock && p.type !== 'api';
   const imageHtml = p.imageUrl 
       ? `<img src="${p.imageUrl}" class="w-24 h-24 rounded-lg object-cover border border-slate-700 shadow-md" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
          <div class="w-24 h-24 rounded-lg bg-slate-800 items-center justify-center text-3xl hidden border border-slate-700 shadow-md">🎮</div>`
