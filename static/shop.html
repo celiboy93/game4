@@ -10,7 +10,7 @@
         .section h2 { color: #ffd700; border-bottom: 1px solid #444; padding-bottom: 10px; }
         .action-btn { width: 100%; padding: 15px; margin-top: 15px; font-size: 18px; font-weight: bold; }
         .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px; }
-        .inp-field, select { padding: 10px; margin: 5px 0; background: #333; border: 1px solid #555; color: white; border-radius: 5px; box-sizing: border-box; }
+        .inp-field, select { width: 100%; padding: 10px; margin: 5px 0; background: #333; border: 1px solid #555; color: white; border-radius: 5px; box-sizing: border-box; }
         
         /* Modal Styles */
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 999; align-items: center; justify-content: center; }
@@ -38,19 +38,29 @@
         </div>
         
         <div id="adminArea" style="display: none;">
-            <h2>ADMIN TOOLS</h2>
+            <h2>ADMIN TOOLS (STOCK & TOPUP)</h2>
             <div class="section">
                 <h3 style="color:red; margin-top:0;">ADD NEW STOCK</h3>
-                <input type="text" id="stockCode" class="inp-field" placeholder="Code (e.g. key-001)">
-                <input type="number" id="stockPrice" class="inp-field" placeholder="Price (e.g. 4000)">
-                <select id="stockCategory" class="inp-field">
-                    <option value="key">Key</option>
-                    <option value="code">Code</option>
-                </select>
-                <button id="addStockBtn" class="action-btn" style="background: #2196F3;">ADD STOCK</button>
+                <form id="addStockForm">
+                    <input type="text" id="stockName" class="inp-field" placeholder="Item Name (e.g. API Key)" required>
+                    <input type="number" id="stockPrice" class="inp-field" placeholder="Price (e.g. 4000)" required>
+                    <select id="stockCategory" class="inp-field">
+                        <option value="key">Key</option>
+                        <option value="code">Code</option>
+                    </select>
+                    <textarea id="stockCodes" rows="4" class="inp-field" placeholder="Codes (one per line)"></textarea>
+                    <button type="submit" class="action-btn" style="background: #2196F3;">ADD STOCK</button>
+                </form>
             </div>
-            
-            <div id="stockListDisplay"></div>
+
+            <div class="section">
+                <h3 style="color:#0f0; margin-top:0;">TOP UP USER</h3>
+                <form id="topupForm">
+                    <input type="text" id="topupUser" class="inp-field" placeholder="Username">
+                    <input type="number" id="topupAmount" class="inp-field" placeholder="Amount (MMK)">
+                    <button type="submit" style="background: #009688;">ADD MONEY</button>
+                </form>
+            </div>
         </div>
 
         <div class="grid-3" style="margin-top: 20px;">
@@ -75,8 +85,7 @@
     </div>
     
     <script>
-        // JS LOGIC (TO BE IMPLEMENTED)
-
+        
         function showAdminTools(isAdmin) {
             document.getElementById('adminArea').style.display = isAdmin ? 'block' : 'none';
         }
@@ -91,7 +100,7 @@
             showAdminTools(user.username === 'admin');
         }
 
-        // --- Core Functions ---
+        // --- Core Buy Function ---
         document.getElementById('generateBtn').addEventListener('click', async () => {
             const codeType = document.getElementById('codeType').value;
             const res = await fetch('/api/buy', {
@@ -105,38 +114,58 @@
                 openModal('successModal');
                 init();
             } else {
-                alert("Failed: " + (result.error || "Unknown Error."));
+                alert("Failed: " + (result.error || "Unknown Error. Check Admin Stock."));
             }
         });
         
-        document.getElementById('addStockBtn').addEventListener('click', async () => {
-            const code = document.getElementById('stockCode').value;
-            const price = document.getElementById('stockPrice').value;
-            const category = document.getElementById('stockCategory').value;
-            
-            if (!code || !price) { alert("Fill all fields."); return; }
-
+        // --- Admin Handlers ---
+        document.getElementById('addStockForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
             const data = {
-                category: category,
-                name: category, // Use category as item name for simplicity
-                price: price + " MMK",
-                stock: [code] 
+                category: document.getElementById('stockCategory').value,
+                name: document.getElementById('stockName').value,
+                price: document.getElementById('stockPrice').value + " MMK",
+                stock: document.getElementById('stockCodes').value.split('\n').filter(s => s.trim() !== "")
             };
-            
-            const res = await fetch('/api/add-item', { method: 'POST', body: JSON.stringify(data) });
+
+            const res = await fetch('/api/add-item', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
             if (res.ok) {
-                alert("Stock Added! Refresh page to confirm.");
+                alert("Stock Added!");
             } else {
                 alert("Failed to add stock.");
             }
+            e.target.reset();
         });
-        
-        // --- Utility Functions (Omitted for brevity, but should be added for history/modals) ---
+
+        document.getElementById('topupForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const u = document.getElementById('topupUser').value;
+            const a = document.getElementById('topupAmount').value;
+
+            const res = await fetch('/api/admin/topup', { method: 'POST', body: JSON.stringify({ username: u, amount: a }) });
+            if (res.ok) {
+                alert("Topup Success!");
+            } else {
+                alert("Topup Failed!");
+            }
+            e.target.reset();
+            init();
+        });
+
+        // --- Utility Functions ---
         function openModal(id) { document.getElementById(id).style.display = 'flex'; }
-        function closeModal(id) { document.getElementById(id).style.display = 'none'; }
-        function copyCode() { /* ... clipboard logic ... */ }
+        function closeModal(id) { 
+            document.getElementById(id).style.display = 'none';
+        }
+        function copyCode() { 
+            const code = document.getElementById('purchasedCodeDisplay').textContent;
+            navigator.clipboard.writeText(code).then(() => {
+                alert('Code copied!');
+            });
+        }
         async function showHistory() { /* ... history fetch logic ... */ }
 
+        document.getElementById('topupUser').value = 'admin'; // Set default topup user for testing
 
         init();
     </script>
