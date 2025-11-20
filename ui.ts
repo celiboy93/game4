@@ -1,6 +1,6 @@
 import { User, Product, Transaction } from "./db.ts";
 
-export const Layout = (title: string, content: string, user?: User) => `
+export const Layout = (title: string, content: string, user?: User, bannerText?: string) => `
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -26,7 +26,7 @@ export const Layout = (title: string, content: string, user?: User) => `
         });
     }
 
-    // New: Lazy Load Stock
+    // Lazy Load Stock Script
     document.addEventListener("DOMContentLoaded", () => {
         const apiProducts = document.querySelectorAll(".api-stock-loader");
         apiProducts.forEach(async (el) => {
@@ -35,26 +35,53 @@ export const Layout = (title: string, content: string, user?: User) => `
                 const res = await fetch("/check-stock?id=" + id);
                 const text = await res.text();
                 el.innerText = text;
-                // If stock is 0, disable button
+                
                 if(text.includes("0") || text === "?") {
                    const btn = document.getElementById("btn-" + id);
+                   const badge = document.getElementById("badge-" + id);
+                   
                    if(btn) {
                        btn.disabled = true;
                        btn.classList.remove("bg-blue-600", "hover:bg-blue-500");
                        btn.classList.add("bg-slate-700", "cursor-not-allowed");
                        btn.innerText = "🚫 Out of Stock";
                    }
+                   if(badge) {
+                       badge.classList.remove("bg-green-500/20", "text-green-400");
+                       badge.classList.add("bg-red-500/20", "text-red-400");
+                   }
                 }
             } catch {
-                el.innerText = "Err";
+                el.innerText = "?";
             }
         });
     });
+
+    // New: Search Function
+    function filterProducts() {
+        const input = document.getElementById('searchInput');
+        const filter = input.value.toLowerCase();
+        const nodes = document.querySelectorAll('.product-card');
+
+        nodes.forEach(node => {
+            const name = node.dataset.name.toLowerCase();
+            if(name.includes(filter)) {
+                node.style.display = "flex";
+            } else {
+                node.style.display = "none";
+            }
+        });
+    }
   </script>
   <style>
     body { font-family: sans-serif; background-color: #0f172a; color: #e2e8f0; }
     .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
     .code-box { background-image: radial-gradient(#334155 1px, transparent 1px); background-size: 10px 10px; }
+    
+    /* Marquee Animation */
+    .marquee-container { overflow: hidden; white-space: nowrap; position: relative; }
+    .marquee-content { display: inline-block; animation: marquee 15s linear infinite; padding-left: 100%; }
+    @keyframes marquee { 0% { transform: translate(0, 0); } 100% { transform: translate(-100%, 0); } }
   </style>
 </head>
 <body class="min-h-screen flex flex-col">
@@ -75,6 +102,14 @@ export const Layout = (title: string, content: string, user?: User) => `
     </div>
     ${user ? `<div class="md:hidden px-4 pb-2 text-center border-t border-slate-700 pt-2 text-slate-400">Balance: <span class="text-green-400 font-bold">${user.balance.toLocaleString()} Ks</span></div>` : ''}
   </nav>
+
+  ${bannerText ? `
+  <div class="bg-yellow-500/10 border-b border-yellow-500/20 text-yellow-200 py-2">
+    <div class="marquee-container max-w-7xl mx-auto">
+        <div class="marquee-content font-medium tracking-wide">📢 ${bannerText}</div>
+    </div>
+  </div>` : ''}
+
   <main class="flex-grow container mx-auto px-4 py-8">
     ${content}
   </main>
@@ -101,23 +136,22 @@ export const AuthForm = (type: "Login" | "Register", error?: string) => `
 `;
 
 export const ProductCard = (p: Product) => {
-  // For manual, we know stock immediately. For API, we load lazily.
   const isManual = p.type === 'manual';
   const manualStock = p.stock ? p.stock.length : 0;
   
   const stockDisplay = isManual 
       ? `Stock: ${manualStock}` 
-      : `API Stock: <span class="api-stock-loader animate-pulse" data-id="${p.id}">...</span>`;
+      : `Stock: <span class="api-stock-loader animate-pulse" data-id="${p.id}">...</span>`;
   
-  // Initially disable only if manual stock is 0. API button will be disabled by JS later if 0.
   const isDisabled = isManual && manualStock === 0;
 
+  // Added 'product-card' class and 'data-name' for search function
   return `
-  <div class="glass rounded-xl overflow-hidden hover:shadow-2xl hover:shadow-blue-500/10 transition transform hover:-translate-y-1 duration-300 flex flex-col h-full">
+  <div class="product-card glass rounded-xl overflow-hidden hover:shadow-2xl hover:shadow-blue-500/10 transition transform hover:-translate-y-1 duration-300 flex flex-col h-full" data-name="${p.name}">
     <div class="p-5 flex-grow">
       <div class="flex justify-between items-start mb-2">
         <h3 class="text-xl font-bold text-white truncate">${p.name}</h3>
-        <span class="text-xs px-2 py-1 rounded ${!isDisabled ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">
+        <span id="badge-${p.id}" class="text-xs px-2 py-1 rounded ${!isDisabled ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">
           ${stockDisplay}
         </span>
       </div>
