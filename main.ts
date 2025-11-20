@@ -45,42 +45,13 @@ Deno.serve(async (req) => {
     if (sessionUser !== ADMIN_USERNAME) return new Response("Unauthorized", { status: 403 });
   }
 
-  // --- API: DATABASE INTEGRITY TEST (TEMPORARY) ---
-  if (url.pathname === "/debug_kv_write_test") {
-    const u = "testuser_a3b2c";
-    
-    try {
-        const check = await kv.get(["users", u]);
-        
-        if (check.value) {
-            return new Response(`SUCCESS: Test user '${u}' already exists in DB. Login is possible.`, { status: 200 });
-        }
-
-        // Try to register a new user
-        const { hash, salt } = await hashPassword("password");
-        await kv.set(["users", u], { username: u, hash: hash, salt: salt, balance: 0 });
-
-        const finalCheck = await kv.get(["users", u]);
-        
-        if (finalCheck.value) {
-            return new Response(`SUCCESS: New Test User Created and Found in DB.`, { status: 200 });
-        } else {
-            return new Response("FAILURE: User Created but not found on read.", { status: 500 });
-        }
-
-    } catch (e) {
-        return new Response(`CRITICAL ERROR: ${e.message}`, { status: 500 });
-    }
-  }
-
-
   // ROUTING
   if (url.pathname === "/login") return serveFile(req, "./static/login.html");
   if (!sessionUser && (url.pathname === "/" || url.pathname === "/admin" || url.pathname === "/profile")) {
     return new Response(null, { status: 302, headers: { Location: "/login" } });
   }
 
-  if (url.pathname === "/") return serveFile(req, "./static/shop.html"); // Serves the new shop file
+  if (url.pathname === "/") return serveFile(req, "./static/shop.html"); 
   if (url.pathname === "/admin") return serveFile(req, "./static/admin.html");
   if (url.pathname === "/profile") return serveFile(req, "./static/profile.html");
   if (url.pathname.startsWith("/static/")) return serveFile(req, "." + url.pathname);
@@ -143,9 +114,9 @@ Deno.serve(async (req) => {
     await kv.set(["users", sessionUser], user);
     return new Response("Password changed successfully");
   }
-  
-  // --- REST OF SHOP & ADMIN API ---
 
+  // --- SHOP & ADMIN API (ATOMIC WRITE FIXES) ---
+  
   if (url.pathname.startsWith("/api/items")) {
     const entries = kv.list({ prefix: ["items"] });
     const items = [];
@@ -164,24 +135,47 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify(users), { headers: { "content-type": "application/json" } });
   }
 
+  // FIX: ADD ITEM (ATOMIC WRITE)
   if (req.method === "POST" && url.pathname.includes("/api/add-item")) {
     const item = await req.json();
     const id = item.name.replace(/\s+/g, '_').toLowerCase();
-    await kv.set(["items", id], item);
-    return new Response("Added");
+    
+    const existing = await kv.get(["items", id]);
+
+    const res = await kv.atomic()
+      .check({ key: ["items", id], version: existing.version })
+      .set(["items", id], item)
+      .commit();
+      
+    if (!res.ok) {
+        return new Response("Database write failed due to conflict.", { status: 500 });
+    }
+    return new Response("Item Added", { status: 200 });
   }
 
+  // FIX: TOP UP (ATOMIC WRITE)
   if (req.method === "POST" && url.pathname.includes("/api/admin/topup")) {
     const body = await req.json();
     const u = body.username.toLowerCase();
     const userRes = await kv.get(["users", u]);
+    
     if (!userRes.value) return new Response("User not found", { status: 404 });
+    
     const user = userRes.value;
-    user.balance += parseInt(body.amount);
-    await kv.set(["users", u], user);
-    return new Response("Topup Success");
+    const amount = parseInt(body.amount);
+    
+    const res = await kv.atomic()
+        .check(userRes) 
+        .set(["users", u], { ...user, balance: user.balance + amount })
+        .commit();
+
+    if (!res.ok) {
+        return new Response("Topup Failed: Concurrency conflict.", { status: 500 });
+    }
+    
+    return new Response("Topup Success", { status: 200 });
   }
-  
+
   if (req.method === "POST" && url.pathname.includes("/api/admin/create-voucher")) {
     const body = await req.json();
     await kv.set(["vouchers", body.code], { amount: parseInt(body.amount), limit: parseInt(body.limit), used: 0 });
@@ -204,14 +198,20 @@ Deno.serve(async (req) => {
     const receiverRes = await kv.get(["users", receiverName]);
     if (!receiverRes.value) return new Response("Receiver not found", { status: 404 });
     const receiver = receiverRes.value;
+    
+    // TRANSACTION: Atomic Transfer
+    const commit = await kv.atomic()
+        .check(senderRes)
+        .check(receiverRes)
+        .set(["users", sessionUser], { ...sender, balance: sender.balance - amount })
+        .set(["users", receiverName], { ...receiver, balance: receiver.balance + amount })
+        .commit();
+        
+    if (!commit.ok) {
+        return new Response("Transfer Failed: Concurrency/Balance Check Error.", { status: 500 });
+    }
 
-    sender.balance -= amount;
-    receiver.balance += amount;
-
-    await kv.set(["users", sessionUser], sender);
-    await kv.set(["users", receiverName], receiver);
-
-    return new Response("Transfer Success");
+    return new Response("Transfer Success", { status: 200 });
   }
   
   if (req.method === "POST" && url.pathname.includes("/api/redeem")) {
@@ -225,14 +225,20 @@ Deno.serve(async (req) => {
     const voucher = voucherRes.value;
     if (voucher.used >= voucher.limit) return new Response("Voucher Fully Used", { status: 400 });
 
+    // ATOMIC REDEEM: Update User & Voucher usage simultaneously
     const userRes = await kv.get(["users", sessionUser]);
     const user = userRes.value;
-    user.balance += voucher.amount;
     
-    voucher.used += 1;
+    const result = await kv.atomic()
+        .check(userRes)
+        .check(voucherRes)
+        .set(["users", sessionUser], { ...user, balance: user.balance + voucher.amount })
+        .set(["vouchers", code], { ...voucher, used: voucher.used + 1 })
+        .commit();
 
-    await kv.set(["users", sessionUser], user);
-    await kv.set(["vouchers", code], voucher);
+    if (!result.ok) {
+        return new Response("Redeem Failed: Concurrency Error.", { status: 500 });
+    }
 
     return new Response(JSON.stringify({ amount: voucher.amount }), { headers: { "content-type": "application/json" } });
   }
