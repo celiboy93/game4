@@ -18,6 +18,7 @@ export interface Product {
   type: "manual" | "api";
   stock: string[]; 
   apiUrl?: string;
+  imageUrl?: string; // New: Product Image
 }
 
 export interface Transaction {
