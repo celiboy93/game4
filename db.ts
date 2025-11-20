@@ -8,7 +8,7 @@ export interface User {
   avatar?: string;
   isBlocked?: boolean;
   hasClaimedBonus?: boolean;
-  createdAt?: number; // New: Registration Date
+  createdAt?: number;
 }
 
 export interface Product {
@@ -24,11 +24,12 @@ export interface Product {
 
 export interface Transaction {
   id: string;
-  type: "purchase" | "topup" | "voucher" | "bonus" | "transfer_sent" | "transfer_received"; // Added transfer types
+  type: "purchase" | "topup" | "voucher" | "bonus" | "transfer_sent" | "transfer_received" | "refund"; // Added refund
   itemName: string;
   amount: number;
   detail: string;
   date: number;
+  refunded?: boolean; // Track if this tx was refunded
 }
 
 export interface Voucher {
@@ -36,6 +37,11 @@ export interface Voucher {
     amount: number;
     isUsed: boolean;
     usedBy?: string;
+}
+
+// New: Global Sale Record for Admin
+export interface GlobalSale extends Transaction {
+    username: string;
 }
 
 export async function getUser(username: string) {
@@ -52,12 +58,19 @@ export async function getProduct(id: string) {
   return res.value;
 }
 
+// Updated to return the Transaction object
 export async function addHistory(username: string, type: Transaction['type'], itemName: string, amount: number, detail: string) {
   const id = crypto.randomUUID();
   const transaction: Transaction = {
     id, type, itemName, amount, detail, date: Date.now()
   };
-  await kv.set(["history", username, Date.now(), id], transaction);
+  await kv.set(["history", username, transaction.date, id], transaction);
+  return transaction;
+}
+
+// New: Add to Global Sales List (For Admin)
+export async function addGlobalSale(username: string, t: Transaction) {
+    await kv.set(["global_sales", t.date, t.id], { ...t, username });
 }
 
 export async function isKeySold(key: string) {
@@ -108,4 +121,30 @@ export async function markVoucherUsed(code: string, username: string) {
     if(v) {
         await kv.set(["vouchers", code], { ...v, isUsed: true, usedBy: username });
     }
+}
+
+// New: Refund Logic
+export async function processRefund(username: string, date: number, txId: string) {
+    const user = await getUser(username);
+    const saleRes = await kv.get<GlobalSale>(["global_sales", date, txId]);
+    const userTxRes = await kv.get<Transaction>(["history", username, date, txId]);
+
+    if (!user || !saleRes.value || !userTxRes.value) return false;
+    if (saleRes.value.refunded) return false; // Already refunded
+
+    const amount = saleRes.value.amount;
+    
+    // Update DB
+    const res = await kv.atomic()
+        .set(["users", username], { ...user, balance: user.balance + amount }) // Refund Money
+        .set(["global_sales", date, txId], { ...saleRes.value, refunded: true }) // Mark Global
+        .set(["history", username, date, txId], { ...userTxRes.value, refunded: true }) // Mark User History
+        .commit();
+    
+    if(res.ok) {
+        // Add a "Refund Received" history entry
+        await addHistory(username, "refund", `Refund: ${saleRes.value.itemName}`, amount, "Admin Refunded");
+    }
+    
+    return res.ok;
 }
