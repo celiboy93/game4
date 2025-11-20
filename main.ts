@@ -151,41 +151,6 @@ app.post("/2d/bet", async (c) => {
     return c.json({ success: true, newBalance: user.balance - totalCost, message: "Bet Placed!" });
 });
 
-    if (amount < 100) return c.html(Layout("Error", `<div class="p-8 text-center"><h2 class="text-red-400 text-xl mb-4">Minimum bet is 100 Ks</h2><a href="/2d" class="text-blue-400">Back</a></div>`, user));
-    if (user.balance < amount) return c.html(Layout("Error", `<div class="p-8 text-center"><h2 class="text-red-400 text-xl mb-4">Insufficient Balance</h2><a href="/deposit" class="bg-blue-600 px-4 py-2 rounded text-white">Top Up</a></div>`, user));
-
-    const now = new Date().toLocaleString("en-US", { timeZone: "Asia/Yangon" });
-    const dateObj = new Date(now);
-    const hour = dateObj.getHours();
-    const minute = dateObj.getMinutes();
-    const timeValue = hour * 100 + minute;
-
-    let session: "Morning" | "Evening" | null = null;
-    if (timeValue <= 1145) session = "Morning";
-    else if (timeValue >= 1201 && timeValue <= 1558) session = "Evening";
-    else return c.html(Layout("Betting Closed", `<div class="max-w-md mx-auto glass p-8 rounded-2xl text-center mt-10 border border-red-500/30"><div class="text-5xl mb-4">⛔</div><h2 class="text-2xl font-bold text-red-400 mb-2">Market Closed</h2><p class="text-slate-300 mb-4">Morning Close: 11:45 AM<br>Evening Close: 3:58 PM</p><a href="/2d" class="bg-slate-700 text-white px-6 py-2 rounded-lg hover:bg-slate-600">Back</a></div>`, user));
-
-    let numbersToBet: string[] = [];
-    if (type === 'double') { for(let i=0; i<10; i++) numbersToBet.push(`${i}${i}`); } 
-    else if (type === 'head') { if(!/^\d$/.test(rawInput)) return c.html(Layout("Error", `<div class="p-8 text-center text-red-400">Invalid Head input</div>`, user)); for(let i=0; i<10; i++) numbersToBet.push(`${rawInput}${i}`); } 
-    else if (type === 'tail') { if(!/^\d$/.test(rawInput)) return c.html(Layout("Error", `<div class="p-8 text-center text-red-400">Invalid Tail input</div>`, user)); for(let i=0; i<10; i++) numbersToBet.push(`${i}${rawInput}`); } 
-    else {
-        if(!/^\d{2}$/.test(rawInput)) return c.html(Layout("Error", `<div class="p-8 text-center text-red-400">Invalid Number</div>`, user));
-        numbersToBet.push(rawInput);
-        if (type === 'r') { const rev = rawInput.split('').reverse().join(''); if (rev !== rawInput) numbersToBet.push(rev); }
-    }
-
-    const totalCost = numbersToBet.length * amount;
-    if (user.balance < totalCost) return c.html(Layout("Error", `<div class="p-8 text-center"><h2 class="text-red-400 text-xl mb-4">Insufficient Balance</h2><p class="text-slate-300 mb-4">Total: ${totalCost.toLocaleString()} Ks</p><a href="/deposit" class="bg-blue-600 px-4 py-2 rounded text-white">Top Up</a></div>`, user));
-
-    const res = await kv.atomic().check(await kv.get(["users", user.username])).set(["users", user.username], { ...user, balance: user.balance - totalCost }).commit();
-    if (!res.ok) return c.html(Layout("Error", "Transaction Failed.", user));
-
-    for (const num of numbersToBet) { await placeBet(user.username, num, amount, session); }
-    await addHistory(user.username, "bet_2d", `2D Bet (${numbersToBet.length})`, totalCost, `Session: ${session}`);
-    return c.redirect("/2d");
-});
-
 app.get("/api/2d-proxy", async (c) => {
     const config = await getConfig();
     if (config.manual2d && config.manual2d.trim() !== "") { return c.json({ live: { twod: config.manual2d, set: "MANUAL", value: "ADMIN", time: "Live" } }); }
