@@ -61,13 +61,10 @@ app.get("/", async (c) => {
 app.get("/2d", async (c) => {
     const user = await getSessionUser(c);
     if (!user) return c.redirect("/login");
-    
-    // Fetch User's Bets for Today
     const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Yangon" });
     const iter = kv.list<TwoDBet>({ prefix: ["2d_bets", today, user.username] });
     const bets: TwoDBet[] = [];
     for await (const entry of iter) bets.push(entry.value);
-    
     return c.html(TwoDPage(user, bets));
 });
 
@@ -75,30 +72,75 @@ app.post("/2d/bet", async (c) => {
     const user = await getSessionUser(c);
     if (!user) return c.redirect("/login");
     const body = await c.req.parseBody();
-    const number = (body.number as string).padStart(2, '0');
     const amount = Number(body.amount);
+    const type = body.betType as string;
+    let rawInput = (body.number as string || "").trim();
 
     if (amount < 100) return c.html(Layout("Error", `<div class="p-8 text-center"><h2 class="text-red-400 text-xl mb-4">Minimum bet is 100 Ks</h2><a href="/2d" class="text-blue-400">Back</a></div>`, user));
     if (user.balance < amount) return c.html(Layout("Error", `<div class="p-8 text-center"><h2 class="text-red-400 text-xl mb-4">Insufficient Balance</h2><a href="/deposit" class="bg-blue-600 px-4 py-2 rounded text-white">Top Up</a></div>`, user));
 
-    // Determine Session (Myanmar Time)
+    // TIME CHECK
     const now = new Date().toLocaleString("en-US", { timeZone: "Asia/Yangon" });
-    const hour = new Date(now).getHours();
-    const session = hour < 12 ? "Morning" : "Evening"; 
+    const dateObj = new Date(now);
+    const hour = dateObj.getHours();
+    const minute = dateObj.getMinutes();
+    const timeValue = hour * 100 + minute;
 
+    let session: "Morning" | "Evening" | null = null;
+    if (timeValue <= 1145) session = "Morning";
+    else if (timeValue >= 1201 && timeValue <= 1558) session = "Evening";
+    else return c.html(Layout("Betting Closed", `<div class="max-w-md mx-auto glass p-8 rounded-2xl text-center mt-10 border border-red-500/30"><div class="text-5xl mb-4">⛔</div><h2 class="text-2xl font-bold text-red-400 mb-2">Market Closed</h2><p class="text-slate-300 mb-4">Morning Close: 11:45 AM<br>Evening Close: 3:58 PM</p><a href="/2d" class="bg-slate-700 text-white px-6 py-2 rounded-lg hover:bg-slate-600">Back</a></div>`, user));
+
+    // --- NUMBER GENERATION LOGIC ---
+    let numbersToBet: string[] = [];
+
+    if (type === 'double') {
+        // Generate 00, 11, 22 ... 99
+        for(let i=0; i<10; i++) numbersToBet.push(`${i}${i}`);
+    } else if (type === 'head') {
+        // Input '3' -> 30, 31... 39
+        if(!/^\d$/.test(rawInput)) return c.html(Layout("Error", `<div class="p-8 text-center text-red-400">Invalid Head input (0-9 only)</div>`, user));
+        for(let i=0; i<10; i++) numbersToBet.push(`${rawInput}${i}`);
+    } else if (type === 'tail') {
+        // Input '3' -> 03, 13... 93
+        if(!/^\d$/.test(rawInput)) return c.html(Layout("Error", `<div class="p-8 text-center text-red-400">Invalid Tail input (0-9 only)</div>`, user));
+        for(let i=0; i<10; i++) numbersToBet.push(`${i}${rawInput}`);
+    } else {
+        // Direct or R
+        if(!/^\d{2}$/.test(rawInput)) return c.html(Layout("Error", `<div class="p-8 text-center text-red-400">Invalid Number (00-99 only)</div>`, user));
+        numbersToBet.push(rawInput);
+        
+        if (type === 'r') {
+            // Add reverse
+            const rev = rawInput.split('').reverse().join('');
+            if (rev !== rawInput) numbersToBet.push(rev);
+        }
+    }
+
+    // Calculate Total Cost
+    const totalCost = numbersToBet.length * amount;
+
+    if (user.balance < totalCost) return c.html(Layout("Error", `<div class="p-8 text-center"><h2 class="text-red-400 text-xl mb-4">Insufficient Balance</h2><p class="text-slate-300 mb-4">Total Bets: ${numbersToBet.length}<br>Total Cost: ${totalCost.toLocaleString()} Ks</p><a href="/deposit" class="bg-blue-600 px-4 py-2 rounded text-white">Top Up</a></div>`, user));
+
+    // ATOMIC DEDUCTION
     const res = await kv.atomic()
         .check(await kv.get(["users", user.username]))
-        .set(["users", user.username], { ...user, balance: user.balance - amount })
+        .set(["users", user.username], { ...user, balance: user.balance - totalCost })
         .commit();
 
-    if (!res.ok) return c.html(Layout("Error", "Bet Failed. Try Again.", user));
+    if (!res.ok) return c.html(Layout("Error", "Transaction Failed. Please try again.", user));
 
-    await placeBet(user.username, number, amount, session);
-    await addHistory(user.username, "bet_2d", `2D Bet: ${number}`, amount, `Session: ${session}`);
+    // SAVE BETS
+    for (const num of numbersToBet) {
+        await placeBet(user.username, num, amount, session);
+    }
+    
+    // History Entry (Summary)
+    const detailText = type === 'double' ? 'Doubles' : type === 'head' ? `${rawInput} Head` : type === 'tail' ? `${rawInput} Tail` : type === 'r' ? `${rawInput} + R` : `${rawInput}`;
+    await addHistory(user.username, "bet_2d", `2D: ${detailText}`, totalCost, `Session: ${session} (${numbersToBet.length} bets)`);
 
     return c.redirect("/2d");
 });
-
 app.get("/api/2d-proxy", async (c) => {
     const config = await getConfig();
     if (config.manual2d && config.manual2d.trim() !== "") {
@@ -211,6 +253,7 @@ app.post("/redeem", async (c) => {
     await addHistory(user.username, "voucher", "Voucher Redeemed", voucher.amount, `Code: ${code}`);
     return c.html(ProfilePage({ ...user, balance: user.balance + voucher.amount }, { active: config.bonusActive, amount: config.bonusAmount }, { type: 'success', text: `Successfully added ${voucher.amount} Ks!` }));
 });
+
 app.post("/buy", async (c) => {
   const user = await getSessionUser(c);
   if (!user) return c.json({ success: false, message: "Unauthorized" }, 401);
@@ -222,10 +265,8 @@ app.post("/buy", async (c) => {
   const product = await getProduct(id as string);
   if (!product) return c.json({ success: false, message: "Product not found" });
   if (user.balance < product.price) return c.json({ success: false, message: "Insufficient Balance" });
-  
   let finalDisplayCode = "";
   let soldKeyIdentifier = null; 
-
   if (product.type === "manual") {
     if (!product.stock.length) return c.json({ success: false, message: "Out of Stock" });
     finalDisplayCode = product.stock[0];
@@ -318,47 +359,21 @@ app.get("/admin", async (c) => {
       for await (const entry of saleIter) { sales.push(entry.value); nextSaleCursor = entry.key; }
       const encodedSaleCursor = nextSaleCursor ? encodeCursor(nextSaleCursor) : null;
       const config = await getConfig();
-      
-      // 2D Session Logic
       const now = new Date().toLocaleString("en-US", { timeZone: "Asia/Yangon" });
       const hour = new Date(now).getHours();
       const defaultSession = hour < 12 ? "Morning" : "Evening";
-
       return c.html(Layout("Admin", `
         <div class="grid lg:grid-cols-3 gap-8">
           <div class="lg:col-span-1 space-y-6">
-             <div class="glass p-6 rounded-xl border-l-4 border-blue-500 space-y-4">
+            <div class="glass p-6 rounded-xl border-l-4 border-blue-500 space-y-4">
                 <h3 class="text-xl font-bold text-white">🎰 2D Manager</h3>
-                <form action="/admin/config" method="POST" class="space-y-2 border-b border-slate-700 pb-4">
-                    <label class="text-xs text-green-400 uppercase font-bold">Manual Result (Override API)</label>
-                    <div class="flex gap-2">
-                        <input name="manual2d" value="${config.manual2d}" placeholder="e.g. 85" class="w-full bg-slate-800 border border-green-500 rounded p-2 text-white text-center text-lg font-bold">
-                        <button class="bg-green-600 text-white px-3 rounded font-bold">Set</button>
-                    </div>
-                    <p class="text-[10px] text-slate-500">Clear to use API again.</p>
-                    <input type="hidden" name="banner" value="${config.banner}"><input type="hidden" name="telegram" value="${config.telegram}"><input type="hidden" name="payment" value="${config.payment}"><input type="hidden" name="bonusAmount" value="${config.bonusAmount}">${config.maintenance ? '<input type="hidden" name="maintenance" value="on">' : ''}${config.noReg ? '<input type="hidden" name="noReg" value="on">' : ''}${config.bonusActive ? '<input type="hidden" name="bonusActive" value="on">' : ''}${config.sliderImages.map(url => `<input type="hidden" name="slider1" value="${url}">`).join('')} 
-                </form>
-                <form action="/admin/2d-payout" method="POST" class="space-y-3 pt-2" onsubmit="return confirm('Are you sure you want to PAYOUT? This cannot be undone.')">
-                    <label class="text-xs text-blue-400 uppercase font-bold">Process Winnings</label>
-                    <div class="grid grid-cols-2 gap-2">
-                        <input name="number" placeholder="Win Number" required class="bg-slate-800 border border-slate-600 rounded p-2 text-white text-center font-bold">
-                        <input name="multiplier" type="number" value="80" placeholder="Odds (80)" required class="bg-slate-800 border border-slate-600 rounded p-2 text-white text-center">
-                    </div>
-                    <select name="session" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white">
-                        <option value="Morning" ${defaultSession === 'Morning' ? 'selected' : ''}>Morning (12:01 PM)</option>
-                        <option value="Evening" ${defaultSession === 'Evening' ? 'selected' : ''}>Evening (4:30 PM)</option>
-                    </select>
-                    <button class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 rounded transition shadow-lg">💸 Pay Winners</button>
-                </form>
+                <form action="/admin/config" method="POST" class="space-y-2 border-b border-slate-700 pb-4"><label class="text-xs text-green-400 uppercase font-bold">Manual Result (Override API)</label><div class="flex gap-2"><input name="manual2d" value="${config.manual2d}" placeholder="e.g. 85" class="w-full bg-slate-800 border border-green-500 rounded p-2 text-white text-center text-lg font-bold"><button class="bg-green-600 text-white px-3 rounded font-bold">Set</button></div><p class="text-[10px] text-slate-500">Clear to use API again.</p><input type="hidden" name="banner" value="${config.banner}"><input type="hidden" name="telegram" value="${config.telegram}"><input type="hidden" name="payment" value="${config.payment}"><input type="hidden" name="bonusAmount" value="${config.bonusAmount}">${config.maintenance ? '<input type="hidden" name="maintenance" value="on">' : ''}${config.noReg ? '<input type="hidden" name="noReg" value="on">' : ''}${config.bonusActive ? '<input type="hidden" name="bonusActive" value="on">' : ''}${config.sliderImages.map(url => `<input type="hidden" name="slider1" value="${url}">`).join('')} </form>
+                <form action="/admin/2d-payout" method="POST" class="space-y-3 pt-2" onsubmit="return confirm('Are you sure you want to PAYOUT? This cannot be undone.')"><label class="text-xs text-blue-400 uppercase font-bold">Process Winnings</label><div class="grid grid-cols-2 gap-2"><input name="number" placeholder="Win Number" required class="bg-slate-800 border border-slate-600 rounded p-2 text-white text-center font-bold"><input name="multiplier" type="number" value="80" placeholder="Odds (80)" required class="bg-slate-800 border border-slate-600 rounded p-2 text-white text-center"></div><select name="session" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><option value="Morning" ${defaultSession === 'Morning' ? 'selected' : ''}>Morning (12:01 PM)</option><option value="Evening" ${defaultSession === 'Evening' ? 'selected' : ''}>Evening (4:30 PM)</option></select><button class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 rounded transition shadow-lg">💸 Pay Winners</button></form>
             </div>
-            
             <div class="glass p-6 rounded-xl border-l-4 border-yellow-500 space-y-4">
-                <h3 class="text-xl font-bold text-white">⚙️ Configuration</h3>
+                <h3 class="text-xl font-bold text-white">⚙️ Config</h3>
                 <form action="/admin/config" method="POST" class="space-y-3">
-                    <div class="grid grid-cols-2 gap-2">
-                        <label class="flex items-center space-x-2 cursor-pointer bg-slate-800 p-2 rounded border ${config.maintenance ? 'border-red-500' : 'border-slate-600'}"><input type="checkbox" name="maintenance" ${config.maintenance ? 'checked' : ''}><span class="text-xs text-white">Maintenance</span></label>
-                        <label class="flex items-center space-x-2 cursor-pointer bg-slate-800 p-2 rounded border ${config.noReg ? 'border-red-500' : 'border-slate-600'}"><input type="checkbox" name="noReg" ${config.noReg ? 'checked' : ''}><span class="text-xs text-white">No Register</span></label>
-                    </div>
+                    <div class="grid grid-cols-2 gap-2"><label class="flex items-center space-x-2 cursor-pointer bg-slate-800 p-2 rounded border ${config.maintenance ? 'border-red-500' : 'border-slate-600'}"><input type="checkbox" name="maintenance" ${config.maintenance ? 'checked' : ''}><span class="text-xs text-white">Maintenance</span></label><label class="flex items-center space-x-2 cursor-pointer bg-slate-800 p-2 rounded border ${config.noReg ? 'border-red-500' : 'border-slate-600'}"><input type="checkbox" name="noReg" ${config.noReg ? 'checked' : ''}><span class="text-xs text-white">No Register</span></label></div>
                     <div class="bg-slate-900/50 p-3 rounded border border-slate-600"><label class="flex items-center space-x-2 cursor-pointer mb-2"><input type="checkbox" name="bonusActive" ${config.bonusActive ? 'checked' : ''}><span class="text-xs text-green-400 font-bold uppercase">Welcome Bonus Active</span></label><input name="bonusAmount" type="number" value="${config.bonusAmount}" placeholder="Bonus Amount (Ks)" class="w-full bg-slate-800 border border-slate-600 rounded p-1 text-white text-sm"></div>
                     <div><label class="text-xs text-slate-400 uppercase">Announcement</label><input name="banner" value="${config.banner}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm"></div>
                     <div><label class="text-xs text-slate-400 uppercase">Telegram</label><input name="telegram" value="${config.telegram}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm"></div>
@@ -372,13 +387,7 @@ app.get("/admin", async (c) => {
             <div class="glass p-6 rounded-xl"><h3 class="text-lg font-bold text-white mb-2">👥 Users</h3>${AdminUserTable(userListHtml, encodedUserCursor)}</div>
           </div>
           <div class="lg:col-span-2 space-y-8">
-            <div class="glass p-6 rounded-xl"><h3 class="text-xl font-bold text-white mb-4">➕ Add Product</h3><form action="/admin/add" method="POST" class="space-y-3"><div class="grid grid-cols-2 gap-4"><input name="name" placeholder="Name" required class="bg-slate-800 border border-slate-600 rounded p-2 text-white"><input name="price" type="number" placeholder="Price" required class="bg-slate-800 border border-slate-600 rounded p-2 text-white"></div><input name="desc" placeholder="Description" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><select name="type" id="productType" onchange="toggleProductInputs()" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white mb-2"><option value="manual">Manual Stock</option><option value="api">API Link</option><option value="shared">Shared (Multi-User)</option></select>
-            <div id="input-manual"><textarea name="data" placeholder="Codes (One per line)" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-20 mb-2"></textarea></div>
-            <div id="input-api" style="display:none"><textarea name="apiData" placeholder="API URL" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-20 mb-2"></textarea></div>
-            <div id="input-shared" style="display:none"><input name="sharedData" placeholder="Shared Code (e.g. VPN-123)" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white mb-2"><input name="sharedCapacity" type="number" placeholder="Limit (e.g. 50)" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white mb-2"></div>
-            <input name="originalPrice" type="number" placeholder="Original Price (Optional)" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white mb-2">
-            <input name="imageUrl" placeholder="Image URL (Optional)" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white">
-            <button class="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-2 rounded mt-3">Add Product</button></form></div>
+            <div class="glass p-6 rounded-xl"><h3 class="text-xl font-bold text-white mb-4">➕ Add Product</h3><form action="/admin/add" method="POST" class="space-y-3"><div class="grid grid-cols-2 gap-4"><input name="name" placeholder="Name" required class="bg-slate-800 border border-slate-600 rounded p-2 text-white"><input name="price" type="number" placeholder="Price" required class="bg-slate-800 border border-slate-600 rounded p-2 text-white"></div><input name="desc" placeholder="Description" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><select name="type" id="productType" onchange="toggleProductInputs()" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white mb-2"><option value="manual">Manual Stock</option><option value="api">API Link</option><option value="shared">Shared (Multi-User)</option></select><div id="input-manual"><textarea name="data" placeholder="Codes (One per line)" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-20 mb-2"></textarea></div><div id="input-api" style="display:none"><textarea name="apiData" placeholder="API URL" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-20 mb-2"></textarea></div><div id="input-shared" style="display:none"><input name="sharedData" placeholder="Shared Code (e.g. VPN-123)" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white mb-2"><input name="sharedCapacity" type="number" placeholder="Limit (e.g. 50)" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white mb-2"></div><input name="originalPrice" type="number" placeholder="Original Price (Optional)" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white mb-2"><input name="imageUrl" placeholder="Image URL (Optional)" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><button class="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-2 rounded mt-3">Add Product</button></form></div>
             <div class="glass p-6 rounded-xl overflow-x-auto"><h3 class="text-xl font-bold text-white mb-4">📦 Inventory</h3><table class="w-full text-left text-slate-300 text-sm"><thead class="bg-slate-700 text-white uppercase"><tr><th class="p-3">Name</th><th class="p-3">Price</th><th class="p-3">Stock</th><th class="p-3">Actions</th></tr></thead><tbody>${prodRows}</tbody></table></div>
             ${AdminSalesTable(sales, encodedSaleCursor)}
           </div>
@@ -387,7 +396,6 @@ app.get("/admin", async (c) => {
   } catch (e) { return c.html(Layout("Admin Error", `<div class="max-w-md mx-auto glass p-8 rounded-xl text-center mt-10"><h1 class="text-2xl font-bold text-red-400 mb-4">Admin Panel Error</h1><pre class="text-left bg-slate-900 p-4 rounded text-xs text-slate-400 overflow-x-auto mb-4">${e}</pre><a href="/" class="bg-slate-700 text-white px-6 py-2 rounded hover:bg-slate-600">Back Home</a></div>`, await getSessionUser(c))); }
 });
 
-app.post("/admin/2d-payout", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const count = await process2DWinnings((body.number as string).trim(), body.session as any, Number(body.multiplier)); return c.html(Layout("Payout Success", `<div class="max-w-md mx-auto glass p-8 rounded-2xl text-center mt-10"><div class="text-5xl mb-4">💸</div><h2 class="text-2xl font-bold text-green-400 mb-2">Payout Complete!</h2><p class="text-slate-300 mb-4">Winners Paid: <span class="text-green-400 font-bold">${count}</span></p><a href="/admin" class="bg-slate-700 text-white px-6 py-2 rounded-lg hover:bg-slate-600">Back to Admin</a></div>`, user)); });
 app.post("/admin/refund", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); await processRefund(body.username as string, Number(body.date), body.id as string); return c.redirect("/admin"); });
 app.post("/admin/block", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const targetUsername = body.username as string; const shouldBlock = body.status === 'block'; const targetUser = await getUser(targetUsername); if(targetUser) { await updateUser({ ...targetUser, isBlocked: shouldBlock }); } return c.redirect("/admin"); });
 app.post("/admin/reset-password", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const targetUsername = body.username as string; const targetUser = await getUser(targetUsername); if(targetUser) { await updateUser({ ...targetUser, password: "123456" }); } return c.redirect("/admin"); });
