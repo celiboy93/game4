@@ -26,7 +26,6 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
         });
     }
 
-    // Lazy Load Stock Script
     document.addEventListener("DOMContentLoaded", () => {
         const apiProducts = document.querySelectorAll(".api-stock-loader");
         apiProducts.forEach(async (el) => {
@@ -39,7 +38,6 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
                 if(text.includes("0") || text === "?") {
                    const btn = document.getElementById("btn-" + id);
                    const badge = document.getElementById("badge-" + id);
-                   
                    if(btn) {
                        btn.disabled = true;
                        btn.classList.remove("bg-blue-600", "hover:bg-blue-500");
@@ -57,19 +55,13 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
         });
     });
 
-    // New: Search Function
     function filterProducts() {
         const input = document.getElementById('searchInput');
         const filter = input.value.toLowerCase();
         const nodes = document.querySelectorAll('.product-card');
-
         nodes.forEach(node => {
             const name = node.dataset.name.toLowerCase();
-            if(name.includes(filter)) {
-                node.style.display = "flex";
-            } else {
-                node.style.display = "none";
-            }
+            if(name.includes(filter)) { node.style.display = "flex"; } else { node.style.display = "none"; }
         });
     }
   </script>
@@ -77,8 +69,6 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
     body { font-family: sans-serif; background-color: #0f172a; color: #e2e8f0; }
     .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
     .code-box { background-image: radial-gradient(#334155 1px, transparent 1px); background-size: 10px 10px; }
-    
-    /* Marquee Animation */
     .marquee-container { overflow: hidden; white-space: nowrap; position: relative; }
     .marquee-content { display: inline-block; animation: marquee 15s linear infinite; padding-left: 100%; }
     @keyframes marquee { 0% { transform: translate(0, 0); } 100% { transform: translate(-100%, 0); } }
@@ -90,9 +80,14 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
       <a href="/" class="text-2xl font-bold text-blue-500 hover:text-blue-400 transition">🎮 GameStore</a>
       <div class="flex gap-4 items-center">
         ${user ? `
-          <div class="hidden md:block text-sm text-slate-400">Balance: <span class="text-green-400 font-bold text-lg">${user.balance.toLocaleString()} Ks</span></div>
+          <a href="/deposit" class="hidden md:flex items-center gap-2 bg-slate-800 hover:bg-slate-700 px-3 py-1 rounded-full transition border border-slate-600">
+             <span class="text-sm text-slate-400">Balance:</span>
+             <span class="text-green-400 font-bold">${user.balance.toLocaleString()} Ks</span>
+             <span class="bg-green-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">+</span>
+          </a>
+
           <a href="/history" class="text-slate-300 hover:text-white font-medium">History</a>
-          ${user.isAdmin ? '<a href="/admin" class="text-yellow-400 hover:text-yellow-300 font-semibold">Admin Panel</a>' : ''}
+          ${user.isAdmin ? '<a href="/admin" class="text-yellow-400 hover:text-yellow-300 font-semibold">Admin</a>' : ''}
           <a href="/logout" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm transition">Logout</a>
         ` : `
           <a href="/login" class="text-slate-300 hover:text-white">Login</a>
@@ -100,14 +95,17 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
         `}
       </div>
     </div>
-    ${user ? `<div class="md:hidden px-4 pb-2 text-center border-t border-slate-700 pt-2 text-slate-400">Balance: <span class="text-green-400 font-bold">${user.balance.toLocaleString()} Ks</span></div>` : ''}
+    ${user ? `<div class="md:hidden px-4 pb-2 text-center border-t border-slate-700 pt-2">
+        <a href="/deposit" class="inline-flex items-center gap-2 text-slate-400">
+            Balance: <span class="text-green-400 font-bold">${user.balance.toLocaleString()} Ks</span>
+            <span class="bg-green-600 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">+</span>
+        </a>
+    </div>` : ''}
   </nav>
 
   ${bannerText ? `
   <div class="bg-yellow-500/10 border-b border-yellow-500/20 text-yellow-200 py-2">
-    <div class="marquee-container max-w-7xl mx-auto">
-        <div class="marquee-content font-medium tracking-wide">📢 ${bannerText}</div>
-    </div>
+    <div class="marquee-container max-w-7xl mx-auto"><div class="marquee-content font-medium tracking-wide">📢 ${bannerText}</div></div>
   </div>` : ''}
 
   <main class="flex-grow container mx-auto px-4 py-8">
@@ -138,22 +136,15 @@ export const AuthForm = (type: "Login" | "Register", error?: string) => `
 export const ProductCard = (p: Product) => {
   const isManual = p.type === 'manual';
   const manualStock = p.stock ? p.stock.length : 0;
-  
-  const stockDisplay = isManual 
-      ? `Stock: ${manualStock}` 
-      : `Stock: <span class="api-stock-loader animate-pulse" data-id="${p.id}">...</span>`;
-  
+  const stockDisplay = isManual ? `Stock: ${manualStock}` : `Stock: <span class="api-stock-loader animate-pulse" data-id="${p.id}">...</span>`;
   const isDisabled = isManual && manualStock === 0;
 
-  // Added 'product-card' class and 'data-name' for search function
   return `
   <div class="product-card glass rounded-xl overflow-hidden hover:shadow-2xl hover:shadow-blue-500/10 transition transform hover:-translate-y-1 duration-300 flex flex-col h-full" data-name="${p.name}">
     <div class="p-5 flex-grow">
       <div class="flex justify-between items-start mb-2">
         <h3 class="text-xl font-bold text-white truncate">${p.name}</h3>
-        <span id="badge-${p.id}" class="text-xs px-2 py-1 rounded ${!isDisabled ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">
-          ${stockDisplay}
-        </span>
+        <span id="badge-${p.id}" class="text-xs px-2 py-1 rounded ${!isDisabled ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">${stockDisplay}</span>
       </div>
       <p class="text-slate-400 text-sm mb-4 line-clamp-2">${p.description}</p>
       <div class="text-2xl font-bold text-blue-400">${p.price.toLocaleString()} Ks</div>
