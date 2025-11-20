@@ -53,19 +53,23 @@ export async function markKeyAsSold(key: string, username: string) {
   await kv.set(["sold_keys", key], { soldTo: username, date: Date.now() });
 }
 
-// Config Helpers
+// Config Helpers (Updated)
 export async function getConfig() {
     const banner = await kv.get<string>(["config", "banner"]);
-    const payment = await kv.get<string>(["config", "payment"]); // Payment Details text
-    const telegram = await kv.get<string>(["config", "telegram"]); // Telegram Username
+    const payment = await kv.get<string>(["config", "payment"]);
+    const telegram = await kv.get<string>(["config", "telegram"]);
+    const maintenance = await kv.get<boolean>(["config", "maintenance"]);
+    const noReg = await kv.get<boolean>(["config", "no_reg"]);
     
     return {
         banner: banner.value || "Welcome to GameStore!",
-        payment: payment.value || "Kpay: 09xxxxxx (Name)\nWave: 09xxxxxx (Name)",
-        telegram: telegram.value || "username" // e.g., celiboy93 without @
+        payment: payment.value || "Kpay: 09xxxxxx\nWave: 09xxxxxx",
+        telegram: telegram.value || "username",
+        maintenance: maintenance.value ?? false,
+        noReg: noReg.value ?? false
     };
 }
 
-export async function setConfig(key: string, value: string) {
+export async function setConfig(key: string, value: string | boolean) {
     await kv.set(["config", key], value);
 }
