@@ -9,9 +9,10 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
   <title>${title}</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
-    function copyToClipboard(text) {
+    // --- Copy Function ---
+    function copyToClipboard(text, btnId = 'copyBtn') {
         navigator.clipboard.writeText(text).then(() => {
-            const btn = document.getElementById('copyBtn');
+            const btn = document.getElementById(btnId);
             if(btn) {
                 const originalText = btn.innerHTML;
                 btn.innerHTML = '✅ Copied!';
@@ -26,6 +27,18 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
         });
     }
 
+    // --- Search Function ---
+    function filterProducts() {
+        const input = document.getElementById('searchInput');
+        const filter = input.value.toLowerCase();
+        const nodes = document.querySelectorAll('.product-card');
+        nodes.forEach(node => {
+            const name = node.dataset.name.toLowerCase();
+            node.style.display = name.includes(filter) ? "flex" : "none";
+        });
+    }
+
+    // --- Lazy Load Stock ---
     document.addEventListener("DOMContentLoaded", () => {
         const apiProducts = document.querySelectorAll(".api-stock-loader");
         apiProducts.forEach(async (el) => {
@@ -34,55 +47,112 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
                 const res = await fetch("/check-stock?id=" + id);
                 const text = await res.text();
                 el.innerText = text;
-                
                 if(text.includes("0") || text === "?") {
-                   const btn = document.getElementById("btn-" + id);
-                   const badge = document.getElementById("badge-" + id);
-                   if(btn) {
-                       btn.disabled = true;
-                       btn.classList.remove("bg-blue-600", "hover:bg-blue-500");
-                       btn.classList.add("bg-slate-700", "cursor-not-allowed");
-                       btn.innerText = "🚫 Out of Stock";
-                   }
-                   if(badge) {
-                       badge.classList.remove("bg-green-500/20", "text-green-400");
-                       badge.classList.add("bg-red-500/20", "text-red-400");
-                   }
+                   disableProductCard(id);
                 }
-            } catch {
-                el.innerText = "?";
-            }
+            } catch { el.innerText = "?"; }
         });
     });
 
-    function filterProducts() {
-        const input = document.getElementById('searchInput');
-        const filter = input.value.toLowerCase();
-        const nodes = document.querySelectorAll('.product-card');
-        nodes.forEach(node => {
-            const name = node.dataset.name.toLowerCase();
-            if(name.includes(filter)) { node.style.display = "flex"; } else { node.style.display = "none"; }
-        });
+    function disableProductCard(id) {
+        const btn = document.getElementById("btn-" + id);
+        const badge = document.getElementById("badge-" + id);
+        if(btn) {
+           btn.disabled = true;
+           btn.classList.remove("bg-blue-600", "hover:bg-blue-500");
+           btn.classList.add("bg-slate-700", "cursor-not-allowed");
+           btn.innerText = "🚫 Out of Stock";
+           btn.removeAttribute("onclick"); // Remove click event
+        }
+        if(badge) {
+           badge.classList.remove("bg-green-500/20", "text-green-400");
+           badge.classList.add("bg-red-500/20", "text-red-400");
+        }
+    }
+
+    // --- Modal Logic (New) ---
+    let selectedProductId = null;
+
+    function confirmBuy(id, name, price) {
+        selectedProductId = id;
+        document.getElementById('confirmName').innerText = name;
+        document.getElementById('confirmPrice').innerText = price + " Ks";
+        document.getElementById('confirmModal').classList.remove('hidden');
+    }
+
+    function closeConfirmModal() {
+        document.getElementById('confirmModal').classList.add('hidden');
+        selectedProductId = null;
+    }
+
+    function closeSuccessModal() {
+        document.getElementById('successModal').classList.add('hidden');
+        // Optional: Reload to refresh history/stock strictly, but balance updates dynamically
+        // location.reload(); 
+    }
+
+    async function processPurchase() {
+        if(!selectedProductId) return;
+        
+        // Show Loading State on Button
+        const confirmBtn = document.getElementById('confirmBtnAction');
+        const originalText = confirmBtn.innerText;
+        confirmBtn.innerText = "Processing...";
+        confirmBtn.disabled = true;
+
+        try {
+            const res = await fetch("/buy", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ id: selectedProductId })
+            });
+            
+            const data = await res.json();
+            closeConfirmModal();
+
+            if(data.success) {
+                // Show Success Modal
+                document.getElementById('purchasedCode').innerText = data.code;
+                document.getElementById('copyBtnModal').setAttribute('onclick', \`copyToClipboard(\\\`\${data.code.replace(/`/g, "\\\\\\`")}\\\`, 'copyBtnModal')\`);
+                document.getElementById('successModal').classList.remove('hidden');
+                
+                // Update Balance in Navbar dynamically
+                const balanceEl = document.getElementById('navBalance');
+                if(balanceEl) balanceEl.innerText = data.newBalance.toLocaleString() + " Ks";
+                const mobileBalanceEl = document.getElementById('mobileNavBalance');
+                if(mobileBalanceEl) mobileBalanceEl.innerText = data.newBalance.toLocaleString() + " Ks";
+
+                // If manual stock, we might want to decrement stock UI locally, but lazy load handles it on refresh.
+            } else {
+                alert(data.message || "Purchase Failed");
+            }
+        } catch (e) {
+            alert("Connection Error");
+        } finally {
+            confirmBtn.innerText = originalText;
+            confirmBtn.disabled = false;
+        }
     }
   </script>
   <style>
     body { font-family: sans-serif; background-color: #0f172a; color: #e2e8f0; }
     .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
+    .modal-backdrop { background-color: rgba(0, 0, 0, 0.8); backdrop-filter: blur(4px); }
     .code-box { background-image: radial-gradient(#334155 1px, transparent 1px); background-size: 10px 10px; }
     .marquee-container { overflow: hidden; white-space: nowrap; position: relative; }
     .marquee-content { display: inline-block; animation: marquee 15s linear infinite; padding-left: 100%; }
     @keyframes marquee { 0% { transform: translate(0, 0); } 100% { transform: translate(-100%, 0); } }
   </style>
 </head>
-<body class="min-h-screen flex flex-col">
-  <nav class="glass sticky top-0 z-50 border-b border-slate-700">
+<body class="min-h-screen flex flex-col relative">
+  <nav class="glass sticky top-0 z-40 border-b border-slate-700">
     <div class="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
       <a href="/" class="text-2xl font-bold text-blue-500 hover:text-blue-400 transition">🎮 GameStore</a>
       <div class="flex gap-4 items-center">
         ${user ? `
           <a href="/deposit" class="hidden md:flex items-center gap-2 bg-slate-800 hover:bg-slate-700 px-3 py-1 rounded-full transition border border-slate-600">
              <span class="text-sm text-slate-400">Balance:</span>
-             <span class="text-green-400 font-bold">${user.balance.toLocaleString()} Ks</span>
+             <span id="navBalance" class="text-green-400 font-bold">${user.balance.toLocaleString()} Ks</span>
              <span class="bg-green-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">+</span>
           </a>
           <a href="/history" class="text-slate-300 hover:text-white font-medium">History</a>
@@ -96,20 +166,48 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
     </div>
     ${user ? `<div class="md:hidden px-4 pb-2 text-center border-t border-slate-700 pt-2">
         <a href="/deposit" class="inline-flex items-center gap-2 text-slate-400">
-            Balance: <span class="text-green-400 font-bold">${user.balance.toLocaleString()} Ks</span>
+            Balance: <span id="mobileNavBalance" class="text-green-400 font-bold">${user.balance.toLocaleString()} Ks</span>
             <span class="bg-green-600 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">+</span>
         </a>
     </div>` : ''}
   </nav>
 
-  ${bannerText ? `
-  <div class="bg-yellow-500/10 border-b border-yellow-500/20 text-yellow-200 py-2">
-    <div class="marquee-container max-w-7xl mx-auto"><div class="marquee-content font-medium tracking-wide">📢 ${bannerText}</div></div>
-  </div>` : ''}
+  ${bannerText ? `<div class="bg-yellow-500/10 border-b border-yellow-500/20 text-yellow-200 py-2"><div class="marquee-container max-w-7xl mx-auto"><div class="marquee-content font-medium tracking-wide">📢 ${bannerText}</div></div></div>` : ''}
 
   <main class="flex-grow container mx-auto px-4 py-8">
     ${content}
   </main>
+
+  <div id="confirmModal" class="hidden fixed inset-0 z-50 flex items-center justify-center modal-backdrop px-4">
+    <div class="bg-[#1e293b] border border-slate-600 rounded-2xl p-6 max-w-sm w-full shadow-2xl transform transition-all scale-100">
+        <h3 class="text-xl font-bold text-white mb-2">Confirm Purchase?</h3>
+        <p class="text-slate-400 mb-4">Are you sure you want to buy <br><span id="confirmName" class="text-blue-400 font-bold"></span> for <span id="confirmPrice" class="text-green-400 font-bold"></span>?</p>
+        <div class="flex gap-3">
+            <button onclick="closeConfirmModal()" class="flex-1 bg-slate-700 hover:bg-slate-600 text-white py-2 rounded-lg transition">Cancel</button>
+            <button id="confirmBtnAction" onclick="processPurchase()" class="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 rounded-lg transition shadow-lg shadow-blue-500/20">Yes, Buy</button>
+        </div>
+    </div>
+  </div>
+
+  <div id="successModal" class="hidden fixed inset-0 z-50 flex items-center justify-center modal-backdrop px-4">
+    <div class="bg-[#1e293b] border border-green-500/30 rounded-2xl p-0 max-w-md w-full shadow-2xl overflow-hidden">
+        <div class="bg-green-600/20 p-6 text-center border-b border-green-500/20">
+            <div class="text-5xl mb-2">🎉</div>
+            <h2 class="text-2xl font-bold text-green-400">Successful!</h2>
+        </div>
+        <div class="p-6">
+            <p class="text-slate-400 text-sm mb-2 uppercase tracking-wider font-semibold text-center">Your Code:</p>
+            <div class="code-box bg-slate-900 border-2 border-dashed border-slate-600 rounded-xl p-4 mb-6 relative">
+                 <pre id="purchasedCode" class="font-mono text-green-400 whitespace-pre-wrap break-all text-base leading-relaxed text-center"></pre>
+            </div>
+            <div class="flex flex-col gap-3">
+                <button id="copyBtnModal" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2 shadow-lg">Copy Code</button>
+                <button onclick="closeSuccessModal()" class="w-full bg-slate-700 hover:bg-slate-600 text-white py-3 rounded-xl transition">Close</button>
+            </div>
+        </div>
+    </div>
+  </div>
+
   <footer class="text-center text-slate-600 py-6 text-sm">
     &copy; 2025 Digital Shop System
   </footer>
@@ -117,6 +215,7 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
 </html>
 `;
 
+// Reuse existing AuthForm and MaintenancePage
 export const AuthForm = (type: "Login" | "Register", error?: string) => `
 <div class="max-w-md mx-auto glass p-8 rounded-2xl shadow-2xl">
   <h2 class="text-3xl font-bold text-center mb-6 text-white">${type}</h2>
@@ -132,28 +231,11 @@ export const AuthForm = (type: "Login" | "Register", error?: string) => `
 </div>
 `;
 
-// New: Maintenance Page Design
 export const MaintenancePage = () => `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Maintenance</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <style>body { font-family: sans-serif; background-color: #0f172a; color: #e2e8f0; }</style>
-</head>
-<body class="h-screen flex flex-col items-center justify-center p-4 text-center">
-    <div class="bg-slate-800 p-8 rounded-2xl border border-slate-700 shadow-2xl max-w-md w-full">
-        <div class="text-6xl mb-4">🚧</div>
-        <h1 class="text-3xl font-bold text-white mb-2">Under Maintenance</h1>
-        <p class="text-slate-400 mb-6">We are currently updating our server. Please check back later.</p>
-        <a href="/login" class="text-sm text-slate-600 hover:text-slate-400">Admin Login</a>
-    </div>
-</body>
-</html>
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Maintenance</title><script src="https://cdn.tailwindcss.com"></script><style>body { font-family: sans-serif; background-color: #0f172a; color: #e2e8f0; }</style></head><body class="h-screen flex flex-col items-center justify-center p-4 text-center"><div class="bg-slate-800 p-8 rounded-2xl border border-slate-700 shadow-2xl max-w-md w-full"><div class="text-6xl mb-4">🚧</div><h1 class="text-3xl font-bold text-white mb-2">Under Maintenance</h1><p class="text-slate-400 mb-6">We are currently updating our server. Please check back later.</p><a href="/login" class="text-sm text-slate-600 hover:text-slate-400">Admin Login</a></div></body></html>
 `;
 
+// Updated Product Card to use onclick event instead of Form Submit
 export const ProductCard = (p: Product) => {
   const isManual = p.type === 'manual';
   const manualStock = p.stock ? p.stock.length : 0;
@@ -171,12 +253,11 @@ export const ProductCard = (p: Product) => {
       <div class="text-2xl font-bold text-blue-400">${p.price.toLocaleString()} Ks</div>
     </div>
     <div class="p-5 pt-0 mt-auto">
-      <form action="/buy" method="POST">
-        <input type="hidden" name="id" value="${p.id}">
-        <button id="btn-${p.id}" ${isDisabled ? 'disabled' : ''} class="w-full ${!isDisabled ? 'bg-blue-600 hover:bg-blue-500' : 'bg-slate-700 cursor-not-allowed'} text-white font-bold py-2 rounded-lg transition flex justify-center items-center gap-2">
+        <button id="btn-${p.id}" 
+            ${isDisabled ? 'disabled' : `onclick="confirmBuy('${p.id}', '${p.name}', '${p.price.toLocaleString()}')"`} 
+            class="w-full ${!isDisabled ? 'bg-blue-600 hover:bg-blue-500' : 'bg-slate-700 cursor-not-allowed'} text-white font-bold py-2 rounded-lg transition flex justify-center items-center gap-2">
           ${isDisabled ? '🚫 Out of Stock' : '⚡ Buy Now'}
         </button>
-      </form>
     </div>
   </div>
   `;
