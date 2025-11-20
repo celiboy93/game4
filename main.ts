@@ -119,10 +119,11 @@ app.get("/admin", async (c) => {
   const user = await getSessionUser(c);
   if (!user?.isAdmin) return c.redirect("/");
 
-  const iter = kv.list<Product>({ prefix: ["products"] });
-  let rows = "";
-  for await (const { value: p } of iter) {
-    rows += `
+  // Get Products
+  const prodIter = kv.list<Product>({ prefix: ["products"] });
+  let prodRows = "";
+  for await (const { value: p } of prodIter) {
+    prodRows += `
       <tr class="border-b border-slate-700 hover:bg-slate-800">
         <td class="p-3">${p.name}</td>
         <td class="p-3">${p.price.toLocaleString()} Ks</td>
@@ -137,38 +138,66 @@ app.get("/admin", async (c) => {
       </tr>`;
   }
 
+  // Get Users (New Feature)
+  const userIter = kv.list<User>({ prefix: ["users"] });
+  let userListHtml = "";
+  for await (const { value: u } of userIter) {
+      if (u.username !== user.username) { // Don't show admin himself
+          userListHtml += `
+            <div class="flex justify-between items-center border-b border-slate-700 py-2 text-sm">
+                <span class="text-slate-300 select-all cursor-pointer" onclick="document.querySelector('input[name=username]').value = '${u.username}'">${u.username}</span>
+                <span class="text-green-400">${u.balance.toLocaleString()} Ks</span>
+            </div>`;
+      }
+  }
+
   return c.html(Layout("Admin", `
     <div class="grid lg:grid-cols-3 gap-8">
-      <div class="lg:col-span-1 glass p-6 rounded-xl h-fit">
-        <h3 class="text-xl font-bold text-white mb-4">➕ Add Product</h3>
-        <form action="/admin/add" method="POST" class="space-y-3">
-          <input name="name" placeholder="Product Name" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white">
-          <input name="price" type="number" placeholder="Price (Ks)" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white">
-          <input name="desc" placeholder="Description" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white">
-          <select name="type" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white">
-            <option value="manual">Manual Stock</option>
-            <option value="api">API Link</option>
-          </select>
-          <textarea name="data" placeholder="For Manual: Codes (one per line)&#10;For API: URL Link" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-24"></textarea>
-          <button class="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-2 rounded">Add Product</button>
-        </form>
+      
+      <div class="lg:col-span-1 space-y-6">
+        <div class="glass p-6 rounded-xl">
+          <h3 class="text-xl font-bold text-white mb-4">💰 User Top Up</h3>
+          <form action="/admin/topup" method="POST" class="space-y-3">
+            <input name="username" placeholder="Username" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white">
+            <div class="flex gap-2">
+                <input name="amount" type="number" placeholder="Amount" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white">
+                <button class="bg-blue-600 px-4 rounded text-white font-bold">Add</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="glass p-6 rounded-xl">
+             <h3 class="text-lg font-bold text-white mb-2">👥 Registered Users</h3>
+             <p class="text-xs text-slate-500 mb-3">Click name to auto-fill topup</p>
+             <div class="max-h-64 overflow-y-auto pr-2">
+                ${userListHtml || '<p class="text-slate-500">No other users yet</p>'}
+             </div>
+        </div>
       </div>
 
       <div class="lg:col-span-2 space-y-8">
         <div class="glass p-6 rounded-xl">
-          <h3 class="text-xl font-bold text-white mb-4">💰 User Top Up</h3>
-          <form action="/admin/topup" method="POST" class="flex gap-2">
-            <input name="username" placeholder="Username" required class="flex-1 bg-slate-800 border border-slate-600 rounded p-2 text-white">
-            <input name="amount" type="number" placeholder="Amount" required class="w-32 bg-slate-800 border border-slate-600 rounded p-2 text-white">
-            <button class="bg-blue-600 px-4 py-2 rounded text-white font-bold">Top Up</button>
-          </form>
+            <h3 class="text-xl font-bold text-white mb-4">➕ Add Product</h3>
+            <form action="/admin/add" method="POST" class="space-y-3">
+                <div class="grid grid-cols-2 gap-4">
+                    <input name="name" placeholder="Product Name" required class="bg-slate-800 border border-slate-600 rounded p-2 text-white">
+                    <input name="price" type="number" placeholder="Price (Ks)" required class="bg-slate-800 border border-slate-600 rounded p-2 text-white">
+                </div>
+                <input name="desc" placeholder="Description" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white">
+                <select name="type" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white">
+                    <option value="manual">Manual Stock</option>
+                    <option value="api">API Link</option>
+                </select>
+                <textarea name="data" placeholder="For Manual: Codes (one per line)&#10;For API: URL Link" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-20"></textarea>
+                <button class="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-2 rounded">Add Product</button>
+            </form>
         </div>
 
         <div class="glass p-6 rounded-xl overflow-x-auto">
           <h3 class="text-xl font-bold text-white mb-4">📦 Inventory</h3>
           <table class="w-full text-left text-slate-300 text-sm">
             <thead class="bg-slate-700 text-white uppercase"><tr><th class="p-3">Name</th><th class="p-3">Price</th><th class="p-3">Stock</th><th class="p-3">Actions</th></tr></thead>
-            <tbody>${rows}</tbody>
+            <tbody>${prodRows}</tbody>
           </table>
         </div>
       </div>
@@ -177,6 +206,32 @@ app.get("/admin", async (c) => {
 });
 
 // Admin Actions
+
+app.post("/admin/topup", async (c) => {
+  const user = await getSessionUser(c);
+  if (!user?.isAdmin) return c.redirect("/");
+  
+  const body = await c.req.parseBody();
+  const targetUsername = (body.username as string).trim(); // Fixed: Trim spaces
+  const amount = Number(body.amount);
+
+  const targetUser = await getUser(targetUsername);
+  
+  // Fixed: Better error handling
+  if (!targetUser) {
+    return c.html(Layout("Admin Error", `
+      <div class="max-w-md mx-auto glass p-8 rounded-xl text-center">
+        <h2 class="text-red-400 text-xl font-bold mb-4">User Not Found</h2>
+        <p class="text-slate-300">Username "<b>${targetUsername}</b>" does not exist.</p>
+        <a href="/admin" class="text-blue-400 mt-4 inline-block">Try Again</a>
+      </div>
+    `, user));
+  }
+  
+  await kv.set(["users", targetUsername], { ...targetUser, balance: targetUser.balance + amount });
+  return c.redirect("/admin");
+});
+
 app.post("/admin/add", async (c) => {
   const user = await getSessionUser(c);
   if (!user?.isAdmin) return c.redirect("/");
@@ -200,15 +255,6 @@ app.post("/admin/delete", async (c) => {
   if (!user?.isAdmin) return c.redirect("/");
   const { id } = await c.req.parseBody();
   await kv.delete(["products", id as string]);
-  return c.redirect("/admin");
-});
-
-app.post("/admin/topup", async (c) => {
-  const user = await getSessionUser(c);
-  if (!user?.isAdmin) return c.redirect("/");
-  const { username, amount } = await c.req.parseBody();
-  const u = await getUser(username as string);
-  if (u) await kv.set(["users", username as string], { ...u, balance: u.balance + Number(amount) });
   return c.redirect("/admin");
 });
 
