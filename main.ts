@@ -1,6 +1,6 @@
 import { Hono } from "jsr:@hono/hono";
 import { getCookie, setCookie, deleteCookie } from "jsr:@hono/hono/cookie";
-import { kv, User, Product, Transaction, GlobalSale, getUser, updateUser, getProduct, addHistory, isKeySold, markKeyAsSold, getConfig, setConfig, createVoucher, getVoucher, markVoucherUsed, addGlobalSale, processRefund, save2DResult, placeBet, TwoDBet } from "./db.ts";
+import { kv, User, Product, Transaction, GlobalSale, getUser, updateUser, getProduct, addHistory, isKeySold, markKeyAsSold, getConfig, setConfig, createVoucher, getVoucher, markVoucherUsed, addGlobalSale, processRefund, save2DResult, placeBet, TwoDBet, process2DWinnings } from "./db.ts";
 import { Layout, AuthForm, ProductCard, HistoryTable, MaintenancePage, ProfilePage, TransferPage, AdminUserTable, AdminSalesTable, ImageSlider, TwoDPage } from "./ui.ts";
 
 const app = new Hono();
@@ -58,7 +58,6 @@ app.get("/", async (c) => {
   `, user, config.banner));
 });
 
-// 2D Page
 app.get("/2d", async (c) => {
     const user = await getSessionUser(c);
     if (!user) return c.redirect("/login");
@@ -72,7 +71,6 @@ app.get("/2d", async (c) => {
     return c.html(TwoDPage(user, bets));
 });
 
-// 2D Bet Action
 app.post("/2d/bet", async (c) => {
     const user = await getSessionUser(c);
     if (!user) return c.redirect("/login");
@@ -101,7 +99,6 @@ app.post("/2d/bet", async (c) => {
     return c.redirect("/2d");
 });
 
-// API Proxies
 app.get("/api/2d-proxy", async (c) => {
     const config = await getConfig();
     if (config.manual2d && config.manual2d.trim() !== "") {
@@ -110,16 +107,12 @@ app.get("/api/2d-proxy", async (c) => {
     try {
         const res = await fetch("https://api.thaistock2d.com/live");
         const data = await res.json();
-        
         if (!data.live || !data.live.twod) {
              const historyRes = await fetch("https://api.thaistock2d.com/2d_result");
              const historyData = await historyRes.json();
              if (historyData && historyData.length > 0) {
                  const last = historyData[0];
-                 // Save latest result to DB for checking winners later
-                 await save2DResult({
-                     date: last.date, time: last.open_time, set: last.set, value: last.value, twod: last.twod
-                 });
+                 await save2DResult({ date: last.date, time: last.open_time, set: last.set, value: last.value, twod: last.twod });
                  return c.json({ live: { twod: last.twod, set: last.set, value: last.value, time: `Closed (${last.open_time})` } });
              }
         }
@@ -218,7 +211,6 @@ app.post("/redeem", async (c) => {
     await addHistory(user.username, "voucher", "Voucher Redeemed", voucher.amount, `Code: ${code}`);
     return c.html(ProfilePage({ ...user, balance: user.balance + voucher.amount }, { active: config.bonusActive, amount: config.bonusAmount }, { type: 'success', text: `Successfully added ${voucher.amount} Ks!` }));
 });
-
 app.post("/buy", async (c) => {
   const user = await getSessionUser(c);
   if (!user) return c.json({ success: false, message: "Unauthorized" }, 401);
@@ -230,8 +222,10 @@ app.post("/buy", async (c) => {
   const product = await getProduct(id as string);
   if (!product) return c.json({ success: false, message: "Product not found" });
   if (user.balance < product.price) return c.json({ success: false, message: "Insufficient Balance" });
+  
   let finalDisplayCode = "";
   let soldKeyIdentifier = null; 
+
   if (product.type === "manual") {
     if (!product.stock.length) return c.json({ success: false, message: "Out of Stock" });
     finalDisplayCode = product.stock[0];
@@ -310,28 +304,54 @@ app.get("/admin", async (c) => {
   try {
       const user = await getSessionUser(c);
       if (!user?.isAdmin) return c.redirect("/");
-      
       const prodIter = kv.list<Product>({ prefix: ["products"] });
       let prodRows = "";
       for await (const { value: p } of prodIter) { const stockDisplay = p.type === 'manual' ? p.stock.length : p.type === 'shared' ? `Limit: ${p.sharedSold}/${p.sharedCapacity}` : 'Auto (API)'; prodRows += `<tr class="border-b border-slate-700 hover:bg-slate-800"><td class="p-3">${p.name}</td><td class="p-3">${p.price.toLocaleString()} Ks</td><td class="p-3">${stockDisplay}</td><td class="p-3 flex gap-2"><a href="/admin/edit?id=${p.id}" class="text-yellow-400 hover:underline">Edit</a><form action="/admin/delete" method="POST" onsubmit="return confirm('Are you sure?')" style="margin:0;"><input type="hidden" name="id" value="${p.id}"><button class="text-red-400 hover:underline">Delete</button></form></td></tr>`; }
-      
       const userCursor = c.req.query("user_cursor"); const decodedUserCursor = userCursor ? decodeCursor(userCursor) : undefined;
       const userIter = kv.list<User>({ prefix: ["users"] }, { limit: 10, cursor: decodedUserCursor });
       let userListHtml = ""; let nextUserCursor = null;
       for await (const { value: u, key } of userIter) { nextUserCursor = key; if (u.username !== user.username) { userListHtml += `<div class="flex justify-between items-center border-b border-slate-700 py-2 text-sm"><div><span class="text-slate-300 select-all cursor-pointer font-bold" onclick="document.querySelector('input[name=username]').value = '${u.username}'">${u.username}</span><span class="text-xs ml-2 ${u.isBlocked ? 'text-red-500' : 'text-green-500'}">${u.isBlocked ? '(Blocked)' : '(Active)'}</span></div><div class="flex items-center gap-2"><span class="text-green-400">${u.balance.toLocaleString()} Ks</span><form action="/admin/reset-password" method="POST" onsubmit="return confirm('Reset password for ${u.username} to 123456?')" style="margin:0;"><input type="hidden" name="username" value="${u.username}"><button class="text-xs px-2 py-1 rounded bg-blue-600 text-white" title="Reset Pass to 123456">🔑</button></form><form action="/admin/block" method="POST" style="margin:0;"><input type="hidden" name="username" value="${u.username}"><input type="hidden" name="status" value="${u.isBlocked ? 'unblock' : 'block'}"><button class="text-xs px-2 py-1 rounded ${u.isBlocked ? 'bg-green-600' : 'bg-red-600'} text-white">${u.isBlocked ? 'Unblock' : 'Block'}</button></form></div></div>`; } }
       const encodedUserCursor = nextUserCursor ? encodeCursor(nextUserCursor) : null;
-
       const saleCursor = c.req.query("sale_cursor"); const decodedSaleCursor = saleCursor ? decodeCursor(saleCursor) : undefined;
       const saleIter = kv.list<GlobalSale>({ prefix: ["global_sales"] }, { limit: 10, reverse: true, cursor: decodedSaleCursor });
       const sales: GlobalSale[] = []; let nextSaleCursor = null;
       for await (const entry of saleIter) { sales.push(entry.value); nextSaleCursor = entry.key; }
       const encodedSaleCursor = nextSaleCursor ? encodeCursor(nextSaleCursor) : null;
-
       const config = await getConfig();
+      
+      // 2D Session Logic
+      const now = new Date().toLocaleString("en-US", { timeZone: "Asia/Yangon" });
+      const hour = new Date(now).getHours();
+      const defaultSession = hour < 12 ? "Morning" : "Evening";
 
       return c.html(Layout("Admin", `
         <div class="grid lg:grid-cols-3 gap-8">
           <div class="lg:col-span-1 space-y-6">
+             <div class="glass p-6 rounded-xl border-l-4 border-blue-500 space-y-4">
+                <h3 class="text-xl font-bold text-white">🎰 2D Manager</h3>
+                <form action="/admin/config" method="POST" class="space-y-2 border-b border-slate-700 pb-4">
+                    <label class="text-xs text-green-400 uppercase font-bold">Manual Result (Override API)</label>
+                    <div class="flex gap-2">
+                        <input name="manual2d" value="${config.manual2d}" placeholder="e.g. 85" class="w-full bg-slate-800 border border-green-500 rounded p-2 text-white text-center text-lg font-bold">
+                        <button class="bg-green-600 text-white px-3 rounded font-bold">Set</button>
+                    </div>
+                    <p class="text-[10px] text-slate-500">Clear to use API again.</p>
+                    <input type="hidden" name="banner" value="${config.banner}"><input type="hidden" name="telegram" value="${config.telegram}"><input type="hidden" name="payment" value="${config.payment}"><input type="hidden" name="bonusAmount" value="${config.bonusAmount}">${config.maintenance ? '<input type="hidden" name="maintenance" value="on">' : ''}${config.noReg ? '<input type="hidden" name="noReg" value="on">' : ''}${config.bonusActive ? '<input type="hidden" name="bonusActive" value="on">' : ''}${config.sliderImages.map(url => `<input type="hidden" name="slider1" value="${url}">`).join('')} 
+                </form>
+                <form action="/admin/2d-payout" method="POST" class="space-y-3 pt-2" onsubmit="return confirm('Are you sure you want to PAYOUT? This cannot be undone.')">
+                    <label class="text-xs text-blue-400 uppercase font-bold">Process Winnings</label>
+                    <div class="grid grid-cols-2 gap-2">
+                        <input name="number" placeholder="Win Number" required class="bg-slate-800 border border-slate-600 rounded p-2 text-white text-center font-bold">
+                        <input name="multiplier" type="number" value="80" placeholder="Odds (80)" required class="bg-slate-800 border border-slate-600 rounded p-2 text-white text-center">
+                    </div>
+                    <select name="session" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white">
+                        <option value="Morning" ${defaultSession === 'Morning' ? 'selected' : ''}>Morning (12:01 PM)</option>
+                        <option value="Evening" ${defaultSession === 'Evening' ? 'selected' : ''}>Evening (4:30 PM)</option>
+                    </select>
+                    <button class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 rounded transition shadow-lg">💸 Pay Winners</button>
+                </form>
+            </div>
+            
             <div class="glass p-6 rounded-xl border-l-4 border-yellow-500 space-y-4">
                 <h3 class="text-xl font-bold text-white">⚙️ Configuration</h3>
                 <form action="/admin/config" method="POST" class="space-y-3">
@@ -339,7 +359,6 @@ app.get("/admin", async (c) => {
                         <label class="flex items-center space-x-2 cursor-pointer bg-slate-800 p-2 rounded border ${config.maintenance ? 'border-red-500' : 'border-slate-600'}"><input type="checkbox" name="maintenance" ${config.maintenance ? 'checked' : ''}><span class="text-xs text-white">Maintenance</span></label>
                         <label class="flex items-center space-x-2 cursor-pointer bg-slate-800 p-2 rounded border ${config.noReg ? 'border-red-500' : 'border-slate-600'}"><input type="checkbox" name="noReg" ${config.noReg ? 'checked' : ''}><span class="text-xs text-white">No Register</span></label>
                     </div>
-                    <div><label class="text-xs text-green-400 uppercase font-bold">Manual 2D Result (Override)</label><input name="manual2d" value="${config.manual2d}" placeholder="e.g. 85 (Leave empty for API)" class="w-full bg-slate-800 border border-green-500 rounded p-2 text-white text-sm"></div>
                     <div class="bg-slate-900/50 p-3 rounded border border-slate-600"><label class="flex items-center space-x-2 cursor-pointer mb-2"><input type="checkbox" name="bonusActive" ${config.bonusActive ? 'checked' : ''}><span class="text-xs text-green-400 font-bold uppercase">Welcome Bonus Active</span></label><input name="bonusAmount" type="number" value="${config.bonusAmount}" placeholder="Bonus Amount (Ks)" class="w-full bg-slate-800 border border-slate-600 rounded p-1 text-white text-sm"></div>
                     <div><label class="text-xs text-slate-400 uppercase">Announcement</label><input name="banner" value="${config.banner}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm"></div>
                     <div><label class="text-xs text-slate-400 uppercase">Telegram</label><input name="telegram" value="${config.telegram}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm"></div>
@@ -368,6 +387,7 @@ app.get("/admin", async (c) => {
   } catch (e) { return c.html(Layout("Admin Error", `<div class="max-w-md mx-auto glass p-8 rounded-xl text-center mt-10"><h1 class="text-2xl font-bold text-red-400 mb-4">Admin Panel Error</h1><pre class="text-left bg-slate-900 p-4 rounded text-xs text-slate-400 overflow-x-auto mb-4">${e}</pre><a href="/" class="bg-slate-700 text-white px-6 py-2 rounded hover:bg-slate-600">Back Home</a></div>`, await getSessionUser(c))); }
 });
 
+app.post("/admin/2d-payout", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const count = await process2DWinnings((body.number as string).trim(), body.session as any, Number(body.multiplier)); return c.html(Layout("Payout Success", `<div class="max-w-md mx-auto glass p-8 rounded-2xl text-center mt-10"><div class="text-5xl mb-4">💸</div><h2 class="text-2xl font-bold text-green-400 mb-2">Payout Complete!</h2><p class="text-slate-300 mb-4">Winners Paid: <span class="text-green-400 font-bold">${count}</span></p><a href="/admin" class="bg-slate-700 text-white px-6 py-2 rounded-lg hover:bg-slate-600">Back to Admin</a></div>`, user)); });
 app.post("/admin/refund", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); await processRefund(body.username as string, Number(body.date), body.id as string); return c.redirect("/admin"); });
 app.post("/admin/block", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const targetUsername = body.username as string; const shouldBlock = body.status === 'block'; const targetUser = await getUser(targetUsername); if(targetUser) { await updateUser({ ...targetUser, isBlocked: shouldBlock }); } return c.redirect("/admin"); });
 app.post("/admin/reset-password", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const targetUsername = body.username as string; const targetUser = await getUser(targetUsername); if(targetUser) { await updateUser({ ...targetUser, password: "123456" }); } return c.redirect("/admin"); });
