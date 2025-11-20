@@ -11,49 +11,13 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
   <title>${title}</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
-    // --- Fixed Slider Logic ---
-    document.addEventListener("DOMContentLoaded", () => {
-        const sliderTrack = document.getElementById('sliderTrack');
-        if(sliderTrack && sliderTrack.children.length > 1) {
-            let index = 0;
-            const count = sliderTrack.children.length;
-            setInterval(() => {
-                index = (index + 1) % count;
-                sliderTrack.style.transform = \`translateX(-\${index * 100}%)\`;
-            }, 3500);
-        }
-
-        // Lazy Load
-        const apiProducts = document.querySelectorAll(".api-stock-loader");
-        apiProducts.forEach(async (el) => {
-            const id = el.dataset.id;
-            try {
-                const res = await fetch("/check-stock?id=" + id);
-                const text = await res.text();
-                el.innerText = text;
-                if(text.includes("0") || text === "?") { disableProductCard(id); }
-            } catch { el.innerText = "?"; }
-        });
-
-        const loader = document.getElementById('page-loader');
-        document.querySelectorAll('a').forEach(link => {
-            link.addEventListener('click', (e) => {
-                const href = link.getAttribute('href');
-                if (href && !href.startsWith('#') && !href.startsWith('javascript') && !e.ctrlKey && !e.metaKey) {
-                    loader.classList.remove('hidden');
-                }
-            });
-        });
-        document.querySelectorAll('form').forEach(form => {
-            form.addEventListener('submit', () => {
-                if(!form.closest('.modal-content')) { loader.classList.remove('hidden'); }
-            });
-        });
-    });
-    
-    window.addEventListener('pageshow', (event) => {
-        if (event.persisted) { document.getElementById('page-loader').classList.add('hidden'); }
-    });
+    // --- Helper to toggle inputs in Admin Panel ---
+    function toggleProductInputs() {
+        const type = document.getElementById('productType').value;
+        document.getElementById('input-manual').style.display = type === 'manual' ? 'block' : 'none';
+        document.getElementById('input-api').style.display = type === 'api' ? 'block' : 'none';
+        document.getElementById('input-shared').style.display = type === 'shared' ? 'block' : 'none';
+    }
 
     function copyToClipboard(text, btnId = 'copyBtn') {
         navigator.clipboard.writeText(text).then(() => {
@@ -87,6 +51,48 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
             node.style.display = name.includes(filter) ? "flex" : "none";
         });
     }
+
+    document.addEventListener("DOMContentLoaded", () => {
+        const apiProducts = document.querySelectorAll(".api-stock-loader");
+        apiProducts.forEach(async (el) => {
+            const id = el.dataset.id;
+            try {
+                const res = await fetch("/check-stock?id=" + id);
+                const text = await res.text();
+                el.innerText = text;
+                if(text.includes("0") || text === "?") { disableProductCard(id); }
+            } catch { el.innerText = "?"; }
+        });
+
+        const sliderTrack = document.getElementById('sliderTrack');
+        if(sliderTrack && sliderTrack.children.length > 1) {
+            let index = 0;
+            const count = sliderTrack.children.length;
+            setInterval(() => {
+                index = (index + 1) % count;
+                sliderTrack.style.transform = \`translateX(-\${index * 100}%)\`;
+            }, 3500);
+        }
+
+        const loader = document.getElementById('page-loader');
+        document.querySelectorAll('a').forEach(link => {
+            link.addEventListener('click', (e) => {
+                const href = link.getAttribute('href');
+                if (href && !href.startsWith('#') && !href.startsWith('javascript') && !e.ctrlKey && !e.metaKey) {
+                    loader.classList.remove('hidden');
+                }
+            });
+        });
+        document.querySelectorAll('form').forEach(form => {
+            form.addEventListener('submit', () => {
+                if(!form.closest('.modal-content')) { loader.classList.remove('hidden'); }
+            });
+        });
+    });
+    
+    window.addEventListener('pageshow', (event) => {
+        if (event.persisted) { document.getElementById('page-loader').classList.add('hidden'); }
+    });
 
     function disableProductCard(id) {
         const btn = document.getElementById("btn-" + id);
@@ -135,8 +141,11 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
         if(!selectedProductId) return;
         const confirmBtn = document.getElementById('confirmBtnAction');
         const originalText = confirmBtn.innerText;
-        confirmBtn.innerText = "Processing...";
+        
+        // SPINNER LOGIC HERE
+        confirmBtn.innerHTML = '<div class="loader-sm mx-auto"></div>';
         confirmBtn.disabled = true;
+
         try {
             const res = await fetch("/buy", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: selectedProductId }) });
             const data = await res.json();
@@ -151,7 +160,10 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
                 const isBalanceError = data.message === "Insufficient Balance";
                 showErrorModal(data.message || "Purchase Failed", isBalanceError);
             }
-        } catch (e) { showErrorModal("Connection Error"); } finally { confirmBtn.innerText = originalText; confirmBtn.disabled = false; }
+        } catch (e) { showErrorModal("Connection Error"); } finally { 
+            confirmBtn.innerText = originalText; 
+            confirmBtn.disabled = false; 
+        }
     }
 
     function selectAvatar(avatar) {
@@ -169,9 +181,8 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
     .marquee-content { display: inline-block; animation: marquee 15s linear infinite; padding-left: 100%; }
     @keyframes marquee { 0% { transform: translate(0, 0); } 100% { transform: translate(-100%, 0); } }
     .loader { border: 4px solid rgba(59, 130, 246, 0.2); width: 45px; height: 45px; border-radius: 50%; border-left-color: #3b82f6; animation: spin 0.8s linear infinite; box-shadow: 0 0 15px rgba(59, 130, 246, 0.5); }
+    .loader-sm { border: 3px solid rgba(255, 255, 255, 0.3); width: 24px; height: 24px; border-radius: 50%; border-left-color: #ffffff; animation: spin 0.8s linear infinite; }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-    
-    /* Slider Fixed Styles */
     #sliderTrack { transition: transform 0.5s ease-in-out; will-change: transform; }
     .slide-item { min-width: 100%; flex-shrink: 0; }
   </style>
@@ -261,6 +272,10 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
 </html>
 `;
 
+// ... (ImageSlider, AuthForm, MaintenancePage, HistoryTable, ProfilePage, TransferPage, AdminUserTable, AdminSalesTable remain unchanged)
+// You can copy them from the previous response or keep them as is.
+// IMPORTANT: Copy them here for completeness if replacing file.
+
 export const ImageSlider = (images: string[]) => `
 <div class="relative w-full h-48 md:h-64 overflow-hidden rounded-2xl shadow-2xl mb-6 border border-slate-700">
     <div id="sliderTrack" class="flex h-full w-full">
@@ -287,17 +302,32 @@ export const AuthForm = (type: "Login" | "Register", error?: string) => `
 export const MaintenancePage = () => `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Maintenance</title><script src="https://cdn.tailwindcss.com"></script><style>body { font-family: sans-serif; background-color: #0f172a; color: #e2e8f0; }</style></head><body class="h-screen flex flex-col items-center justify-center p-4 text-center"><div class="bg-slate-800 p-8 rounded-2xl border border-slate-700 shadow-2xl max-w-md w-full"><div class="text-6xl mb-4">🚧</div><h1 class="text-3xl font-bold text-white mb-2">Under Maintenance</h1><p class="text-slate-400 mb-6">We are currently updating our server. Please check back later.</p><a href="/login" class="text-sm text-slate-600 hover:text-slate-400">Admin Login</a></div></body></html>`;
 
 export const ProductCard = (p: Product) => {
-  const isManual = p.type === 'manual';
-  const manualStock = p.stock ? p.stock.length : 0;
-  const stockDisplay = isManual ? `Stock: ${manualStock}` : `Stock: <span class="api-stock-loader animate-pulse" data-id="${p.id}">...</span>`;
-  const isDisabled = isManual && manualStock === 0;
+  // Determine Stock Display
+  let stockDisplay = "Stock: 0";
+  let hasStock = false;
+
+  if (p.type === 'manual') {
+      const count = p.stock ? p.stock.length : 0;
+      stockDisplay = `Stock: ${count}`;
+      hasStock = count > 0;
+  } else if (p.type === 'api') {
+      stockDisplay = `Stock: <span class="api-stock-loader animate-pulse" data-id="${p.id}">...</span>`;
+      // Initially assume true, disabled by JS if 0
+      hasStock = true; 
+  } else if (p.type === 'shared') {
+      // Shared Logic: Capacity - Sold
+      const remaining = (p.sharedCapacity || 0) - (p.sharedSold || 0);
+      stockDisplay = `Limit: ${remaining}/${p.sharedCapacity}`;
+      hasStock = remaining > 0;
+  }
+
+  const isDisabled = !hasStock && p.type !== 'api'; // API is handled by JS
   
   const imageHtml = p.imageUrl 
       ? `<img src="${p.imageUrl}" class="w-24 h-24 rounded-lg object-cover border border-slate-700 shadow-md" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
          <div class="w-24 h-24 rounded-lg bg-slate-800 items-center justify-center text-3xl hidden border border-slate-700 shadow-md">🎮</div>`
       : `<div class="w-24 h-24 rounded-lg bg-slate-800 flex items-center justify-center text-3xl border border-slate-700 shadow-md">🎮</div>`;
 
-  // DISCOUNT LOGIC: Display Original Price if it exists
   const priceDisplay = (p.originalPrice && p.originalPrice > p.price) 
       ? `<span class="text-xs text-slate-500 line-through mr-1 font-medium">${p.originalPrice.toLocaleString()} Ks</span><span class="text-xl font-bold text-blue-400">${p.price.toLocaleString()} Ks</span>`
       : `<div class="text-xl font-bold text-blue-400">${p.price.toLocaleString()} Ks</div>`;
@@ -310,7 +340,7 @@ export const ProductCard = (p: Product) => {
             <div>
                 <div class="flex justify-between items-start">
                     <h3 class="text-lg font-bold text-white leading-tight">${p.name}</h3>
-                    <span id="badge-${p.id}" class="text-[10px] px-2 py-1 rounded whitespace-nowrap ${!isDisabled ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">${stockDisplay}</span>
+                    <span id="badge-${p.id}" class="text-[10px] px-2 py-1 rounded whitespace-nowrap ${hasStock ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">${stockDisplay}</span>
                 </div>
                 <p class="text-slate-400 text-xs mt-1 line-clamp-2">${p.description}</p>
             </div>
@@ -381,7 +411,6 @@ export const TransferPage = (user: User, error?: string) => Layout("Transfer", `
     </div>
 `, user);
 
-// Admin Components
 export const AdminUserTable = (usersHtml: string, nextCursor: string | null) => `
 <div class="glass rounded-xl overflow-hidden">
     <div class="overflow-x-auto"><table class="w-full text-left"><thead class="bg-slate-800 text-slate-300 uppercase text-xs"><tr><th class="p-3">User</th><th class="p-3 text-right">Balance</th><th class="p-3 text-center">Status</th></tr></thead><tbody class="divide-y divide-slate-700">${usersHtml}</tbody></table></div>
