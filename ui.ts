@@ -11,47 +11,29 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
   <title>${title}</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
-    // --- ADMIN: Toggle Inputs Function ---
     function toggleProductInputs() {
         const type = document.getElementById('productType').value;
-        
-        // Hide all first
         document.getElementById('input-manual').style.display = 'none';
         document.getElementById('input-api').style.display = 'none';
         document.getElementById('input-shared').style.display = 'none';
-
-        // Show selected
         if (type === 'manual') document.getElementById('input-manual').style.display = 'block';
         else if (type === 'api') document.getElementById('input-api').style.display = 'block';
         else if (type === 'shared') document.getElementById('input-shared').style.display = 'block';
     }
 
-    // --- Active Tab Highlighter ---
     document.addEventListener("DOMContentLoaded", () => {
         const path = window.location.pathname;
         const navIds = {
-            '/': 'nav-home',
-            '/history': 'nav-history',
-            '/profile': 'nav-profile',
-            '/deposit': 'nav-profile',
-            '/transfer': 'nav-profile'
+            '/': 'nav-home', '/history': 'nav-history', '/profile': 'nav-profile', '/deposit': 'nav-profile', '/transfer': 'nav-profile'
         };
         const activeId = navIds[path] || 'nav-home';
         const el = document.getElementById(activeId);
-        if(el) {
-            el.classList.remove('text-slate-500');
-            el.classList.add('text-blue-500');
-        }
+        if(el) { el.classList.remove('text-slate-500'); el.classList.add('text-blue-500'); }
 
-        // Slider & Stock Loaders
         const sliderTrack = document.getElementById('sliderTrack');
         if(sliderTrack && sliderTrack.children.length > 1) {
-            let index = 0;
-            const count = sliderTrack.children.length;
-            setInterval(() => {
-                index = (index + 1) % count;
-                sliderTrack.style.transform = \`translateX(-\${index * 100}%)\`;
-            }, 3500);
+            let index = 0; const count = sliderTrack.children.length;
+            setInterval(() => { index = (index + 1) % count; sliderTrack.style.transform = \`translateX(-\${index * 100}%)\`; }, 3500);
         }
         
         const apiProducts = document.querySelectorAll(".api-stock-loader");
@@ -65,7 +47,6 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
             } catch { el.innerText = "?"; }
         });
 
-        // Page Loader
         const loader = document.getElementById('page-loader');
         document.querySelectorAll('a').forEach(link => {
             link.addEventListener('click', (e) => {
@@ -82,9 +63,7 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
         });
     });
     
-    window.addEventListener('pageshow', (event) => {
-        if (event.persisted) { document.getElementById('page-loader').classList.add('hidden'); }
-    });
+    window.addEventListener('pageshow', (event) => { if (event.persisted) { document.getElementById('page-loader').classList.add('hidden'); } });
 
     function copyToClipboard(text, btnId = 'copyBtn') {
         navigator.clipboard.writeText(text).then(() => {
@@ -94,11 +73,7 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
                 btn.innerText = '✅ Copied!';
                 btn.classList.remove('bg-blue-600');
                 btn.classList.add('bg-green-600');
-                setTimeout(() => {
-                    btn.innerText = "Copy Code"; 
-                    btn.classList.remove('bg-green-600');
-                    btn.classList.add('bg-blue-600');
-                }, 2000);
+                setTimeout(() => { btn.innerText = "Copy Code"; btn.classList.remove('bg-green-600'); btn.classList.add('bg-blue-600'); }, 2000);
             }
         });
     }
@@ -129,10 +104,7 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
            btn.innerText = "🚫 Out of Stock";
            btn.removeAttribute("onclick");
         }
-        if(badge) {
-           badge.classList.remove("bg-green-500/20", "text-green-400");
-           badge.classList.add("bg-red-500/20", "text-red-400");
-        }
+        if(badge) { badge.classList.remove("bg-green-500/20", "text-green-400"); badge.classList.add("bg-red-500/20", "text-red-400"); }
     }
 
     let selectedProductId = null;
@@ -154,8 +126,7 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
                 <div class="flex gap-3 w-full">
                     <button onclick="closeErrorModal()" class="bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 px-4 rounded-xl transition">✕</button>
                     <a href="/deposit" class="flex-1 bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded-xl transition shadow-lg text-center flex items-center justify-center">Top Up Now</a>
-                </div>
-            \`;
+                </div>\`;
         } else {
             btnContainer.innerHTML = \`<button onclick="closeErrorModal()" class="w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 rounded-xl transition">Close</button>\`;
         }
@@ -174,8 +145,7 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
             closeConfirmModal();
             if(data.success) {
                 document.getElementById('purchasedCode').innerText = data.code;
-                const copyBtn = document.getElementById('copyBtnModal');
-                copyBtn.setAttribute('data-code', data.rawCode);
+                document.getElementById('copyBtnModal').setAttribute('data-code', data.rawCode);
                 document.getElementById('successModal').classList.remove('hidden');
                 document.querySelectorAll('.balance-display').forEach(el => el.innerText = data.newBalance.toLocaleString() + " Ks");
             } else { 
@@ -194,7 +164,7 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
   <style>
     body { font-family: sans-serif; background-color: #0f172a; color: #e2e8f0; }
     .glass { background: rgba(30, 41, 59, 0.85); backdrop-filter: blur(12px); border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
-    .glass-nav { background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(10px); border-top: 1px solid rgba(255, 255, 255, 0.1); }
+    .glass-nav { background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(10px); border-top: 1px solid rgba(255, 255, 255, 0.1); }
     .modal-backdrop { background-color: rgba(0, 0, 0, 0.8); backdrop-filter: blur(4px); }
     .code-box { background-image: radial-gradient(#334155 1px, transparent 1px); background-size: 10px 10px; }
     .marquee-container { overflow: hidden; white-space: nowrap; position: relative; }
@@ -212,19 +182,29 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
   
   <div id="page-loader" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm"><div class="loader"></div></div>
 
-  <nav class="glass sticky top-0 z-40 border-b border-slate-700">
+  <nav class="glass sticky top-0 z-40">
     <div class="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
-      <a href="/" class="text-2xl font-bold text-blue-500 hover:text-blue-400 transition flex items-center gap-2">
-        <span>🎮</span> <span class="hidden md:inline">GameStore</span>
+      
+      <a href="/" class="flex items-center gap-2 group">
+        <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-500/20 border border-white/10">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+            </svg>
+        </div>
+        <span class="text-lg font-extrabold tracking-wide text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-400 drop-shadow-sm uppercase">
+            KAIRIZY STORE
+        </span>
       </a>
+      
       <div class="flex gap-3 items-center">
         ${user ? `
           <div class="flex items-center gap-3">
-              <a href="/deposit" class="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 px-3 py-1 rounded-full transition border border-slate-600 text-sm">
+              <a href="/deposit" class="flex items-center gap-2 bg-slate-800/80 hover:bg-slate-700 px-3 py-1.5 rounded-full border border-slate-600 text-sm backdrop-blur-md transition">
                  <span class="hidden md:inline text-slate-400">Balance:</span>
                  <span class="balance-display text-green-400 font-bold">${user.balance.toLocaleString()} Ks</span>
                  <span class="bg-green-600 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">+</span>
               </a>
+              
               <a href="/profile" class="hidden md:block relative">
                 <div class="w-9 h-9 rounded-md bg-slate-700 flex items-center justify-center text-xl border border-slate-500 shadow-sm hover:ring-2 ring-blue-500 transition">
                     ${user.avatar || "😎"}
@@ -233,8 +213,8 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
               ${user.isAdmin ? '<a href="/admin" class="hidden md:block text-yellow-400 hover:text-yellow-300 font-semibold text-sm">Admin</a>' : ''}
           </div>
         ` : `
-          <a href="/login" class="text-slate-300 hover:text-white">Login</a>
-          <a href="/register" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-bold">Register</a>
+          <a href="/login" class="text-slate-300 hover:text-white text-sm font-medium">Login</a>
+          <a href="/register" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-bold shadow-lg shadow-blue-500/20 transition">Register</a>
         `}
       </div>
     </div>
@@ -309,16 +289,9 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
         </div>
     </div>
   </div>
-
-  <footer class="text-center text-slate-600 py-6 text-sm">
-    &copy; 2025 Digital Shop System
-  </footer>
 </body>
 </html>
 `;
-
-// (ImageSlider, AuthForm, MaintenancePage, ProductCard, HistoryTable, ProfilePage, TransferPage, AdminUserTable, AdminSalesTable)
-// All other components remain the same, but ProductCard is logic heavy, so ensuring it's included in `ui.ts` context.
 
 export const ImageSlider = (images: string[]) => `
 <div class="relative w-full h-48 md:h-64 overflow-hidden rounded-2xl shadow-2xl mb-6 border border-slate-700">
@@ -346,30 +319,14 @@ export const AuthForm = (type: "Login" | "Register", error?: string) => `
 export const MaintenancePage = () => `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Maintenance</title><script src="https://cdn.tailwindcss.com"></script><style>body { font-family: sans-serif; background-color: #0f172a; color: #e2e8f0; }</style></head><body class="h-screen flex flex-col items-center justify-center p-4 text-center"><div class="bg-slate-800 p-8 rounded-2xl border border-slate-700 shadow-2xl max-w-md w-full"><div class="text-6xl mb-4">🚧</div><h1 class="text-3xl font-bold text-white mb-2">Under Maintenance</h1><p class="text-slate-400 mb-6">We are currently updating our server. Please check back later.</p><a href="/login" class="text-sm text-slate-600 hover:text-slate-400">Admin Login</a></div></body></html>`;
 
 export const ProductCard = (p: Product) => {
-  let stockDisplay = "Stock: 0";
-  let hasStock = false;
-
-  if (p.type === 'manual') {
-      const count = p.stock ? p.stock.length : 0;
-      stockDisplay = `Stock: ${count}`;
-      hasStock = count > 0;
-  } else if (p.type === 'api') {
-      stockDisplay = `Stock: <span class="api-stock-loader animate-pulse" data-id="${p.id}">...</span>`;
-      hasStock = true; 
-  } else if (p.type === 'shared') {
-      // FIX: Ensure numeric calculation handles undefined/null
-      const capacity = Number(p.sharedCapacity || 0);
-      const sold = Number(p.sharedSold || 0);
-      const remaining = capacity - sold;
-      stockDisplay = `Limit: ${remaining}/${capacity}`;
-      hasStock = remaining > 0;
-  }
-
-  const isDisabled = !hasStock && p.type !== 'api';
+  const isManual = p.type === 'manual';
+  const manualStock = p.stock ? p.stock.length : 0;
+  const stockDisplay = isManual ? `Stock: ${manualStock}` : `Stock: <span class="api-stock-loader animate-pulse" data-id="${p.id}">...</span>`;
+  const isDisabled = isManual && manualStock === 0;
   const imageHtml = p.imageUrl ? `<img src="${p.imageUrl}" class="w-24 h-24 rounded-lg object-cover border border-slate-700 shadow-md" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="w-24 h-24 rounded-lg bg-slate-800 items-center justify-center text-3xl hidden border border-slate-700 shadow-md">🎮</div>` : `<div class="w-24 h-24 rounded-lg bg-slate-800 flex items-center justify-center text-3xl border border-slate-700 shadow-md">🎮</div>`;
   const priceDisplay = (p.originalPrice && p.originalPrice > p.price) ? `<span class="text-xs text-slate-500 line-through mr-1 font-medium">${p.originalPrice.toLocaleString()} Ks</span><span class="text-xl font-bold text-blue-400">${p.price.toLocaleString()} Ks</span>` : `<div class="text-xl font-bold text-blue-400">${p.price.toLocaleString()} Ks</div>`;
 
-  return `<div class="product-card glass rounded-xl overflow-hidden hover:shadow-2xl hover:shadow-blue-500/10 transition transform hover:-translate-y-1 duration-300 p-4" data-name="${p.name}"><div class="flex gap-4"><div class="flex-shrink-0">${imageHtml}</div><div class="flex-grow flex flex-col justify-between"><div><div class="flex justify-between items-start"><h3 class="text-lg font-bold text-white leading-tight">${p.name}</h3><span id="badge-${p.id}" class="text-[10px] px-2 py-1 rounded whitespace-nowrap ${hasStock ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">${stockDisplay}</span></div><p class="text-slate-400 text-xs mt-1 line-clamp-2">${p.description}</p></div><div class="mt-2"><div class="mb-2 flex items-baseline">${priceDisplay}</div><button id="btn-${p.id}" ${isDisabled ? 'disabled' : `onclick="confirmBuy('${p.id}', '${p.name}', '${p.price.toLocaleString()}')"`} class="w-full text-sm ${!isDisabled ? 'bg-blue-600 hover:bg-blue-500' : 'bg-slate-700 cursor-not-allowed'} text-white font-bold py-2 rounded-lg transition flex justify-center items-center gap-2">${isDisabled ? 'Out of Stock' : '⚡ Buy Now'}</button></div></div></div></div>`;
+  return `<div class="product-card glass rounded-xl overflow-hidden hover:shadow-2xl hover:shadow-blue-500/10 transition transform hover:-translate-y-1 duration-300 p-4" data-name="${p.name}"><div class="flex gap-4"><div class="flex-shrink-0">${imageHtml}</div><div class="flex-grow flex flex-col justify-between"><div><div class="flex justify-between items-start"><h3 class="text-lg font-bold text-white leading-tight">${p.name}</h3><span id="badge-${p.id}" class="text-[10px] px-2 py-1 rounded whitespace-nowrap ${!isDisabled ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">${stockDisplay}</span></div><p class="text-slate-400 text-xs mt-1 line-clamp-2">${p.description}</p></div><div class="mt-2"><div class="mb-2 flex items-baseline">${priceDisplay}</div><button id="btn-${p.id}" ${isDisabled ? 'disabled' : `onclick="confirmBuy('${p.id}', '${p.name}', '${p.price.toLocaleString()}')"`} class="w-full text-sm ${!isDisabled ? 'bg-blue-600 hover:bg-blue-500' : 'bg-slate-700 cursor-not-allowed'} text-white font-bold py-2 rounded-lg transition flex justify-center items-center gap-2">${isDisabled ? 'Out of Stock' : '⚡ Buy Now'}</button></div></div></div></div>`;
 };
 
 export const HistoryTable = (transactions: Transaction[], nextCursor: string | null, activeTab: string) => {
