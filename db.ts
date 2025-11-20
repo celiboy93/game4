@@ -1,6 +1,5 @@
 export const kv = await Deno.openKv();
 
-// --- USER TYPES ---
 export interface User {
   username: string;
   password: string;
@@ -9,27 +8,24 @@ export interface User {
   avatar?: string;
   isBlocked?: boolean;
   hasClaimedBonus?: boolean;
-  createdAt?: number; // For transfer rules (30 days check)
+  createdAt?: number;
 }
 
-// --- PRODUCT TYPES ---
 export interface Product {
   id: string;
   name: string;
   description: string;
   price: number;
   type: "manual" | "api" | "shared";
-  stock: string[]; // For 'manual'
-  apiUrl?: string; // For 'api'
+  stock: string[]; 
+  apiUrl?: string;
   imageUrl?: string;
   originalPrice?: number;
-  // For 'shared' (Netflix style)
-  sharedData?: string;      
-  sharedCapacity?: number;  
-  sharedSold?: number;      
+  sharedData?: string;
+  sharedCapacity?: number;
+  sharedSold?: number;
 }
 
-// --- TRANSACTION & HISTORY TYPES ---
 export interface Transaction {
   id: string;
   type: "purchase" | "topup" | "voucher" | "bonus" | "transfer_sent" | "transfer_received" | "refund" | "bet_2d" | "win_2d";
@@ -40,40 +36,40 @@ export interface Transaction {
   refunded?: boolean;
 }
 
-export interface GlobalSale extends Transaction {
-    username: string;
+export interface Voucher { code: string; amount: number; isUsed: boolean; usedBy?: string; }
+export interface GlobalSale extends Transaction { username: string; }
+export interface TwoDResult { date: string; time: string; set: string; value: string; twod: string; timestamp?: number; }
+export interface TwoDBet { id: string; username: string; number: string; amount: number; date: string; session: "Morning" | "Evening"; status: "pending" | "win" | "lose"; timestamp: number; }
+
+// --- SECURITY FUNCTIONS ---
+
+// 1. Password Hashing (SHA-256)
+export async function hashPassword(password: string) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(password + "my-secret-salt-2025"); // Salt adds extra security
+    const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
-// --- VOUCHER TYPE ---
-export interface Voucher {
-    code: string;
-    amount: number;
-    isUsed: boolean;
-    usedBy?: string;
+// 2. Session Management
+export async function createSession(username: string, maxAgeSeconds: number = 86400) {
+    const sessionId = crypto.randomUUID();
+    // Store session in KV with expiration
+    await kv.set(["sessions", sessionId], username, { expireIn: maxAgeSeconds * 1000 });
+    return sessionId;
 }
 
-// --- 2D TYPES ---
-export interface TwoDResult {
-    date: string;
-    time: string;
-    set: string;
-    value: string;
-    twod: string;
-    timestamp?: number;
+export async function getSession(sessionId: string) {
+    const res = await kv.get<string>(["sessions", sessionId]);
+    return res.value;
 }
 
-export interface TwoDBet {
-    id: string;
-    username: string;
-    number: string;
-    amount: number;
-    date: string;
-    session: "Morning" | "Evening";
-    status: "pending" | "win" | "lose";
-    timestamp: number;
+export async function deleteSession(sessionId: string) {
+    await kv.delete(["sessions", sessionId]);
 }
 
-// --- CORE FUNCTIONS ---
+// --- DB FUNCTIONS ---
 
 export async function getUser(username: string) {
   const res = await kv.get<User>(["users", username]);
@@ -111,7 +107,6 @@ export async function markKeyAsSold(key: string, username: string) {
   await kv.set(["sold_keys", key], { soldTo: username, date: Date.now() });
 }
 
-// --- CONFIGURATION ---
 export async function getConfig() {
     const banner = await kv.get<string>(["config", "banner"]);
     const payment = await kv.get<string>(["config", "payment"]);
@@ -124,7 +119,7 @@ export async function getConfig() {
     const manual2d = await kv.get<string>(["config", "manual_2d"]);
     
     return {
-        banner: banner.value || "Welcome to Kairizy Store!",
+        banner: banner.value || "Welcome to GameStore!",
         payment: payment.value || "Kpay: 09xxxxxx\nWave: 09xxxxxx",
         telegram: telegram.value || "username",
         maintenance: maintenance.value ?? false,
@@ -144,7 +139,6 @@ export async function setConfig(key: string, value: any) {
     await kv.set(["config", key], value);
 }
 
-// --- VOUCHER LOGIC ---
 export async function createVoucher(code: string, amount: number) {
     const voucher: Voucher = { code, amount, isUsed: false };
     await kv.set(["vouchers", code], voucher);
@@ -162,77 +156,46 @@ export async function markVoucherUsed(code: string, username: string) {
     }
 }
 
-// --- REFUND LOGIC ---
 export async function processRefund(username: string, date: number, txId: string) {
     const user = await getUser(username);
     const saleRes = await kv.get<GlobalSale>(["global_sales", date, txId]);
     const userTxRes = await kv.get<Transaction>(["history", username, date, txId]);
-
     if (!user || !saleRes.value || !userTxRes.value) return false;
     if (saleRes.value.refunded) return false;
-
     const amount = saleRes.value.amount;
-    
-    // Atomic Refund Transaction
     const res = await kv.atomic()
         .set(["users", username], { ...user, balance: user.balance + amount })
         .set(["global_sales", date, txId], { ...saleRes.value, refunded: true })
         .set(["history", username, date, txId], { ...userTxRes.value, refunded: true })
         .commit();
-    
-    if(res.ok) {
-        await addHistory(username, "refund", `Refund: ${saleRes.value.itemName}`, amount, "Admin Refunded");
-    }
+    if(res.ok) { await addHistory(username, "refund", `Refund: ${saleRes.value.itemName}`, amount, "Admin Refunded"); }
     return res.ok;
 }
 
-// --- 2D LOGIC ---
 export async function save2DResult(res: TwoDResult) {
-    // Key: ["2d_results", YYYY-MM-DD, TimeString]
     await kv.set(["2d_results", res.date, res.time], res);
 }
 
 export async function placeBet(username: string, number: string, amount: number, session: "Morning" | "Evening") {
     const id = crypto.randomUUID();
-    // Store date in YYYY-MM-DD format based on Myanmar Time
     const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Yangon" });
-    
     const bet: TwoDBet = {
-        id, 
-        username, 
-        number, 
-        amount, 
-        date: today, 
-        session, 
-        status: "pending", 
-        timestamp: Date.now()
+        id, username, number, amount, date: today, session, status: "pending", timestamp: Date.now()
     };
-    
-    // Key structure: ["2d_bets", YYYY-MM-DD, USERNAME, ID]
     await kv.set(["2d_bets", today, username, id], bet);
     return bet;
 }
 
 export async function process2DWinnings(winningNumber: string, session: "Morning" | "Evening", multiplier: number) {
     const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Yangon" });
-    // Scan all bets for today
     const iter = kv.list<TwoDBet>({ prefix: ["2d_bets", today] });
-    
     let winCount = 0;
-
     for await (const entry of iter) {
         const bet = entry.value;
-        
-        // Only process pending bets for the correct session
         if (bet.status === 'pending' && bet.session === session) {
             const isWin = bet.number === winningNumber;
             const newStatus = isWin ? 'win' : 'lose';
-            
-            // Prepare atomic update
-            let atomic = kv.atomic()
-                .set(entry.key, { ...bet, status: newStatus });
-
-            // If Win, add money
+            let atomic = kv.atomic().set(entry.key, { ...bet, status: newStatus });
             if (isWin) {
                 const user = await getUser(bet.username);
                 if (user) {
@@ -240,10 +203,8 @@ export async function process2DWinnings(winningNumber: string, session: "Morning
                     atomic = atomic.set(["users", bet.username], { ...user, balance: user.balance + payout });
                 }
             }
-
             const res = await atomic.commit();
             if (res.ok && isWin) {
-                // Add history separately (KV atomic limitation workaround)
                 await addHistory(bet.username, "win_2d", `2D Win: ${bet.number}`, bet.amount * multiplier, `Rate: ${multiplier}x`);
                 winCount++;
             }
