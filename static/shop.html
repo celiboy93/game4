@@ -9,23 +9,17 @@
         .section { background: #1e1e1e; padding: 20px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #333; }
         .section h2 { color: #ffd700; border-bottom: 1px solid #444; padding-bottom: 10px; }
         .action-btn { width: 100%; padding: 15px; margin-top: 15px; font-size: 18px; font-weight: bold; }
-        .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px; }
         .inp-field, select { width: 100%; padding: 10px; margin: 5px 0; background: #333; border: 1px solid #555; color: white; border-radius: 5px; box-sizing: border-box; }
         
         /* Modal Styles */
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 999; align-items: center; justify-content: center; }
         .modal-content { background: #222; padding: 25px; width: 90%; max-width: 400px; border-radius: 10px; max-height: 80vh; overflow-y: auto; text-align: center; }
-        .result-code { background: #000; color: #0f0; padding: 10px; border-radius: 5px; margin: 15px 0; font-family: monospace; word-break: break-all; }
-        .delete-btn { background: #d32f2f; color: white; }
-
+        .success-box { border: 2px solid #4CAF50; background: #1a1a1a; box-shadow: 0 0 20px rgba(76, 175, 80, 0.4); padding: 30px 20px; }
+        .success-icon { font-size: 50px; color: #ffd700; margin-bottom: 15px; } 
+        .code-display { background: #000; color: #0f0; padding: 10px; border-radius: 5px; margin: 15px 0; font-family: monospace; word-break: break-all; }
+        
         /* Admin Icon in Header */
-        #adminIcon {
-            font-size: 20px;
-            cursor: pointer;
-            color: #ff6f00; 
-            margin-right: 10px;
-            display: none; /* Hidden by default */
-        }
+        #adminIcon { font-size: 20px; cursor: pointer; color: #ff6f00; margin-right: 10px; display: none; }
     </style>
 </head>
 <body>
@@ -50,7 +44,7 @@
         </div>
         
         <div id="adminArea" style="display: none;">
-            <h2 style="color:red;">ADMIN TOOLS (STOCK & TOPUP)</h2>
+            <h2 style="color:red;">ADMIN TOOLS</h2>
             <div class="section" style="border-color: #0f0;">
                 <h3 style="color:#0f0; margin-top:0;">TOP UP USER</h3>
                 <form id="topupForm">
@@ -78,27 +72,22 @@
             <h2>CURRENT ITEM STOCK</h2>
             <div id="itemListDisplay">Loading items...</div>
         </div>
-
-
-        <div class="grid-3" style="margin-top: 20px;">
-            <button onclick="showHistory()" style="background: #2196F3;">📜 History</button>
-            <button onclick="location.href='/profile'" style="background: #673AB7;">⚙️ Profile</button>
-            <button onclick="location.href='/api/auth/logout'" style="background:#d32f2f;">Logout</button>
+        
+        <div style="margin-top: 20px;">
+            <button onclick="location.href='/api/auth/logout'" style="background:#d32f2f; color:white; padding: 10px;">Logout</button>
         </div>
 
     </div>
 
     <div id="successModal" class="modal">
-        <div class="modal-content">
-            <h2 style="color: #0f0;">SUCCESS!</h2>
-            <p>Your new code is:</p>
-            <div id="purchasedCodeDisplay" class="result-code"></div>
+        <div class="modal-content success-box">
+            <div class="success-icon">✅</div> 
+            <h2 style="color: white; margin-top: 0;">PURCHASE SUCCESSFUL!</h2>
+            <p style="color: #ccc; font-size: 14px;">Your unique code is ready.</p>
+            <div id="purchasedCodeDisplay" class="code-display"></div>
             <button class="copy-btn" onclick="copyCode()">COPY CODE</button>
             <button class="close-btn" onclick="closeModal('successModal')">CLOSE</button>
         </div>
-    </div>
-    <div id="historyModal" class="modal">
-        <div class="modal-content"><h2 style="color: #ffd700; margin-top: 0;">MY ORDERS</h2><div id="historyList">Loading...</div><button class="close-btn" onclick="closeModal('historyModal')">CLOSE</button></div>
     </div>
     
     <script>
@@ -156,7 +145,22 @@
             await loadItemsAndUI();
         }
 
-        // --- Core Buy Function ---
+        // --- Utility & Modal Functions ---
+        function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+        function closeModal(id) { 
+            document.getElementById(id).style.display = 'none';
+        }
+        function copyCode() { 
+            const code = document.getElementById('purchasedCodeDisplay').textContent;
+            navigator.clipboard.writeText(code).then(() => {
+                alert('Code copied!');
+            });
+        }
+
+        // --- Event Handlers ---
+        
+        document.getElementById('adminIcon').addEventListener('click', toggleAdminPanel);
+
         document.getElementById('generateBtn').addEventListener('click', async () => {
             const codeType = document.getElementById('codeType').value;
             if (!codeType || codeType === 'No items available') { alert("Please select an item."); return; }
@@ -176,7 +180,6 @@
             }
         });
         
-        // --- Admin Handlers ---
         document.getElementById('addStockForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const name = document.getElementById('stockName').value;
@@ -213,19 +216,9 @@
             e.target.reset();
             init();
         });
-
-        // --- Utility & Modal Functions ---
-        function openModal(id) { document.getElementById(id).style.display = 'flex'; }
-        function closeModal(id) { 
-            document.getElementById(id).style.display = 'none';
-        }
-        document.getElementById('copyBtn').onclick = () => { /* ... copy logic ... */ };
-        async function showHistory() { /* ... history fetch logic ... */ }
-        
-        // --- FINAL BINDING FIX ---
-        document.getElementById('adminIcon').addEventListener('click', toggleAdminPanel);
         
         document.getElementById('topupUser').value = 'admin'; 
+
         init();
     </script>
 </body>
