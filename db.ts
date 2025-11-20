@@ -29,7 +29,6 @@ export interface Transaction {
   amount: number;
   detail: string;
   date: number;
-  refunded?: boolean;
 }
 
 export interface Voucher {
@@ -63,7 +62,7 @@ export async function addHistory(username: string, type: Transaction['type'], it
     id, type, itemName, amount, detail, date: Date.now()
   };
   await kv.set(["history", username, transaction.date, id], transaction);
-  return transaction; // Important for Global Sales
+  return transaction;
 }
 
 export async function addGlobalSale(username: string, t: Transaction) {
@@ -88,6 +87,9 @@ export async function getConfig() {
     const bonusActive = await kv.get<boolean>(["config", "bonus_active"]);
     const bonusAmount = await kv.get<number>(["config", "bonus_amount"]);
     
+    // New: Slider Images
+    const sliderImages = await kv.get<string[]>(["config", "slider_images"]);
+    
     return {
         banner: banner.value || "Welcome to GameStore!",
         payment: payment.value || "Kpay: 09xxxxxx\nWave: 09xxxxxx",
@@ -95,11 +97,17 @@ export async function getConfig() {
         maintenance: maintenance.value ?? false,
         noReg: noReg.value ?? false,
         bonusActive: bonusActive.value ?? false,
-        bonusAmount: bonusAmount.value || 0
+        bonusAmount: bonusAmount.value || 0,
+        // Default Images if none set
+        sliderImages: sliderImages.value || [
+            "https://img.freepik.com/free-vector/gaming-banner-template-with-geometric-shapes_23-2148795457.jpg",
+            "https://t3.ftcdn.net/jpg/02/85/90/44/360_F_285904463_52tKiXp59JoHuAAxHRn3jKk8qI2o56q7.jpg",
+            "https://img.freepik.com/free-vector/horizontal-banner-template-esports-gaming_23-2148528707.jpg"
+        ]
     };
 }
 
-export async function setConfig(key: string, value: string | boolean | number) {
+export async function setConfig(key: string, value: any) {
     await kv.set(["config", key], value);
 }
 
