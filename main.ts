@@ -185,7 +185,9 @@ app.post("/buy", async (c) => {
     } catch { return c.json({ success: false, message: "API Connection Error" }); }
   }
   const tx = await addHistory(user.username, "purchase", product.name, product.price, finalDisplayCode);
-  await addGlobalSale(user.username, tx); // Record for Admin
+  // Check if tx exists (in case db.ts is not updated yet, though we updated it above)
+  if(tx) await addGlobalSale(user.username, tx);
+  
   return c.json({ success: true, code: finalDisplayCode, newBalance: user.balance - product.price });
 });
 
@@ -204,92 +206,127 @@ app.get("/check-stock", async (c) => {
 app.get("/history", async (c) => {
   const user = await getSessionUser(c); if (!user) return c.redirect("/login"); const cursor = c.req.query("cursor"); const filter = c.req.query("filter") || "all";
   const iter = kv.list<Transaction>({ prefix: ["history", user.username] }, { limit: 50, reverse: true, cursor: cursor }); const transactions: Transaction[] = []; let nextCursor = null; 
-  for await (const entry of iter) { const t = entry.value; if (filter === 'purchase' && (t.type === 'purchase' || t.type === 'transfer_sent')) transactions.push(t); else if (filter === 'topup' && (t.type === 'topup' || t.type === 'voucher' || t.type === 'bonus' || t.type === 'transfer_received')) transactions.push(t); else if (filter === 'all') transactions.push(t); nextCursor = entry.key; if(transactions.length >= 10) break; }
+  for await (const entry of iter) { const t = entry.value; if (filter === 'purchase' && (t.type === 'purchase' || t.type === 'transfer_sent')) transactions.push(t); else if (filter === 'topup' && (t.type === 'topup' || t.type === 'voucher' || t.type === 'bonus' || t.type === 'transfer_received' || t.type === 'refund')) transactions.push(t); else if (filter === 'all') transactions.push(t); nextCursor = entry.key; if(transactions.length >= 10) break; }
   const encodedCursor = nextCursor ? btoa(JSON.stringify(nextCursor)) : null;
   return c.html(Layout("History", `<div class="max-w-4xl mx-auto"><h1 class="text-3xl font-bold text-white mb-6">Transaction History</h1>${HistoryTable(transactions, encodedCursor, filter)}<div class="mt-4 text-center text-slate-500 text-sm"><a href="/" class="hover:text-blue-400">← Back to Shop</a></div></div>`, user));
 });
 
 app.get("/login", (c) => c.html(Layout("Login", AuthForm("Login"))));
-app.post("/login", async (c) => { const body = await c.req.parseBody(); const user = await getUser(body.username as string); if (user && user.password === body.password) { if(user.isBlocked) return c.html(Layout("Login", AuthForm("Login", "Your account has been blocked."))); const maxAge = body.remember === 'on' ? 60 * 60 * 24 * 15 : undefined; setCookie(c, "session_user", user.username, { maxAge }); return c.redirect("/"); } return c.html(Layout("Login", AuthForm("Login", "Invalid username or password"))); });
+app.post("/login", async (c) => {
+  const body = await c.req.parseBody();
+  const user = await getUser(body.username as string);
+  if (user && user.password === body.password) { 
+      if(user.isBlocked) return c.html(Layout("Login", AuthForm("Login", "Your account has been blocked.")));
+      const maxAge = body.remember === 'on' ? 60 * 60 * 24 * 15 : undefined;
+      setCookie(c, "session_user", user.username, { maxAge }); 
+      return c.redirect("/"); 
+  } 
+  return c.html(Layout("Login", AuthForm("Login", "Invalid username or password"))); 
+});
+
 app.get("/register", async (c) => { const config = await getConfig(); if (config.noReg) return c.html(Layout("Registration Closed", `<div class="text-center py-10 text-red-400 text-xl font-bold">⚠️ New registrations are currently disabled.</div>`)); return c.html(Layout("Register", AuthForm("Register"))); });
-app.post("/register", async (c) => { const config = await getConfig(); if (config.noReg) return c.html(Layout("Registration Closed", `<div class="text-center py-10 text-red-400 text-xl font-bold">⚠️ New registrations are currently disabled.</div>`)); const { username, password } = await c.req.parseBody(); const existing = await getUser(username as string); if (existing) return c.html(Layout("Register", AuthForm("Register", "Username already taken"))); const list = kv.list({ prefix: ["users"] }, { limit: 1 }); const isFirst = (await list.next()).done; const initialBalance = config.bonusActive ? config.bonusAmount : 0; await kv.set(["users", username as string], { username, password, balance: initialBalance, isAdmin: isFirst, hasClaimedBonus: config.bonusActive, createdAt: Date.now() } as User); if(initialBalance > 0) { await addHistory(username as string, "bonus", "Welcome Bonus", initialBalance, "Registration Gift"); } setCookie(c, "session_user", username as string); return c.redirect("/"); });
+app.post("/register", async (c) => {
+  const config = await getConfig();
+  if (config.noReg) return c.html(Layout("Registration Closed", `<div class="text-center py-10 text-red-400 text-xl font-bold">⚠️ New registrations are currently disabled.</div>`));
+  const { username, password } = await c.req.parseBody();
+  const existing = await getUser(username as string);
+  if (existing) return c.html(Layout("Register", AuthForm("Register", "Username already taken")));
+  const list = kv.list({ prefix: ["users"] }, { limit: 1 });
+  const isFirst = (await list.next()).done;
+  const initialBalance = config.bonusActive ? config.bonusAmount : 0;
+  await kv.set(["users", username as string], { username, password, balance: initialBalance, isAdmin: isFirst, hasClaimedBonus: config.bonusActive, createdAt: Date.now() } as User);
+  if(initialBalance > 0) { await addHistory(username as string, "bonus", "Welcome Bonus", initialBalance, "Registration Gift"); }
+  setCookie(c, "session_user", username as string);
+  return c.redirect("/");
+});
 app.get("/logout", (c) => { deleteCookie(c, "session_user"); return c.redirect("/login"); });
 
-// Admin Routes
 app.get("/admin", async (c) => {
-  const user = await getSessionUser(c);
-  if (!user?.isAdmin) return c.redirect("/");
-  
-  // Products
-  const prodIter = kv.list<Product>({ prefix: ["products"] });
-  let prodRows = "";
-  for await (const { value: p } of prodIter) { const stockDisplay = p.type === 'manual' ? p.stock.length : 'Auto (API)'; prodRows += `<tr class="border-b border-slate-700 hover:bg-slate-800"><td class="p-3">${p.name}</td><td class="p-3">${p.price.toLocaleString()} Ks</td><td class="p-3">${stockDisplay}</td><td class="p-3 flex gap-2"><a href="/admin/edit?id=${p.id}" class="text-yellow-400 hover:underline">Edit</a><form action="/admin/delete" method="POST" onsubmit="return confirm('Are you sure?')" style="margin:0;"><input type="hidden" name="id" value="${p.id}"><button class="text-red-400 hover:underline">Delete</button></form></td></tr>`; }
-  
-  // Users (Pagination)
-  const userCursor = c.req.query("user_cursor");
-  const userIter = kv.list<User>({ prefix: ["users"] }, { limit: 10, cursor: userCursor });
-  let userListHtml = "";
-  let nextUserCursor = null;
-  for await (const { value: u, key } of userIter) {
-      nextUserCursor = key; 
-      if (u.username !== user.username) { 
-          userListHtml += `<div class="flex justify-between items-center border-b border-slate-700 py-2 text-sm"><div><span class="text-slate-300 select-all cursor-pointer font-bold" onclick="document.querySelector('input[name=username]').value = '${u.username}'">${u.username}</span><span class="text-xs ml-2 ${u.isBlocked ? 'text-red-500' : 'text-green-500'}">${u.isBlocked ? '(Blocked)' : '(Active)'}</span></div><div class="flex items-center gap-2"><span class="text-green-400">${u.balance.toLocaleString()} Ks</span><form action="/admin/block" method="POST" style="margin:0"><input type="hidden" name="username" value="${u.username}"><input type="hidden" name="status" value="${u.isBlocked ? 'unblock' : 'block'}"><button class="text-xs px-2 py-1 rounded ${u.isBlocked ? 'bg-green-600' : 'bg-red-600'} text-white">${u.isBlocked ? 'Unblock' : 'Block'}</button></form></div></div>`; 
-      } 
+  try {
+      const user = await getSessionUser(c);
+      if (!user?.isAdmin) return c.redirect("/");
+      
+      const prodIter = kv.list<Product>({ prefix: ["products"] });
+      let prodRows = "";
+      for await (const { value: p } of prodIter) { const stockDisplay = p.type === 'manual' ? p.stock.length : 'Auto (API)'; prodRows += `<tr class="border-b border-slate-700 hover:bg-slate-800"><td class="p-3">${p.name}</td><td class="p-3">${p.price.toLocaleString()} Ks</td><td class="p-3">${stockDisplay}</td><td class="p-3 flex gap-2"><a href="/admin/edit?id=${p.id}" class="text-yellow-400 hover:underline">Edit</a><form action="/admin/delete" method="POST" onsubmit="return confirm('Are you sure?')" style="margin:0;"><input type="hidden" name="id" value="${p.id}"><button class="text-red-400 hover:underline">Delete</button></form></td></tr>`; }
+      
+      // Safe User Cursor
+      let userCursor = undefined;
+      try { 
+        const q = c.req.query("user_cursor");
+        if(q) userCursor = JSON.parse(atob(q)); 
+      } catch {}
+
+      const userIter = kv.list<User>({ prefix: ["users"] }, { limit: 10, cursor: userCursor });
+      let userListHtml = "";
+      let nextUserCursor = null;
+      for await (const { value: u, key } of userIter) {
+          nextUserCursor = key; 
+          if (u.username !== user.username) { 
+              userListHtml += `<div class="flex justify-between items-center border-b border-slate-700 py-2 text-sm"><div><span class="text-slate-300 select-all cursor-pointer font-bold" onclick="document.querySelector('input[name=username]').value = '${u.username}'">${u.username}</span><span class="text-xs ml-2 ${u.isBlocked ? 'text-red-500' : 'text-green-500'}">${u.isBlocked ? '(Blocked)' : '(Active)'}</span></div><div class="flex items-center gap-2"><span class="text-green-400">${u.balance.toLocaleString()} Ks</span><form action="/admin/block" method="POST" style="margin:0"><input type="hidden" name="username" value="${u.username}"><input type="hidden" name="status" value="${u.isBlocked ? 'unblock' : 'block'}"><button class="text-xs px-2 py-1 rounded ${u.isBlocked ? 'bg-green-600' : 'bg-red-600'} text-white">${u.isBlocked ? 'Unblock' : 'Block'}</button></form></div></div>`; 
+          } 
+      }
+      const encodedUserCursor = nextUserCursor ? btoa(JSON.stringify(nextUserCursor)) : null;
+
+      // Safe Sale Cursor
+      let saleCursor = undefined;
+      try { 
+        const q = c.req.query("sale_cursor");
+        if(q) saleCursor = JSON.parse(atob(q)); 
+      } catch {}
+
+      const saleIter = kv.list<GlobalSale>({ prefix: ["global_sales"] }, { limit: 10, reverse: true, cursor: saleCursor });
+      const sales: GlobalSale[] = [];
+      let nextSaleCursor = null;
+      for await (const entry of saleIter) { sales.push(entry.value); nextSaleCursor = entry.key; }
+      const encodedSaleCursor = nextSaleCursor ? btoa(JSON.stringify(nextSaleCursor)) : null;
+
+      const config = await getConfig();
+
+      return c.html(Layout("Admin", `
+        <div class="grid lg:grid-cols-3 gap-8">
+          <div class="lg:col-span-1 space-y-6">
+            <div class="glass p-6 rounded-xl border-l-4 border-yellow-500 space-y-4">
+                <h3 class="text-xl font-bold text-white">⚙️ Configuration</h3>
+                <form action="/admin/config" method="POST" class="space-y-3">
+                    <div class="grid grid-cols-2 gap-2">
+                        <label class="flex items-center space-x-2 cursor-pointer bg-slate-800 p-2 rounded border ${config.maintenance ? 'border-red-500' : 'border-slate-600'}"><input type="checkbox" name="maintenance" ${config.maintenance ? 'checked' : ''}><span class="text-xs text-white">Maintenance</span></label>
+                        <label class="flex items-center space-x-2 cursor-pointer bg-slate-800 p-2 rounded border ${config.noReg ? 'border-red-500' : 'border-slate-600'}"><input type="checkbox" name="noReg" ${config.noReg ? 'checked' : ''}><span class="text-xs text-white">No Register</span></label>
+                    </div>
+                    <div class="bg-slate-900/50 p-3 rounded border border-slate-600"><label class="flex items-center space-x-2 cursor-pointer mb-2"><input type="checkbox" name="bonusActive" ${config.bonusActive ? 'checked' : ''}><span class="text-xs text-green-400 font-bold uppercase">Welcome Bonus Active</span></label><input name="bonusAmount" type="number" value="${config.bonusAmount}" placeholder="Bonus Amount (Ks)" class="w-full bg-slate-800 border border-slate-600 rounded p-1 text-white text-sm"></div>
+                    <div><label class="text-xs text-slate-400 uppercase">Announcement</label><input name="banner" value="${config.banner}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm"></div>
+                    <div><label class="text-xs text-slate-400 uppercase">Telegram</label><input name="telegram" value="${config.telegram}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm"></div>
+                    <div><label class="text-xs text-slate-400 uppercase">Payment Details</label><textarea name="payment" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm h-20">${config.payment}</textarea></div>
+                    <button class="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-2 rounded font-bold w-full">Update Settings</button>
+                </form>
+            </div>
+            <div class="glass p-6 rounded-xl border-l-4 border-purple-500"><h3 class="text-xl font-bold text-white mb-4">🎟️ Create Voucher</h3><form action="/admin/voucher" method="POST" class="space-y-3"><input name="code" placeholder="Voucher Code (e.g. HAPPY)" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white uppercase"><div class="flex gap-2"><input name="amount" type="number" placeholder="Amount" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><button class="bg-purple-600 px-4 rounded text-white font-bold">Create</button></div></form></div>
+            <div class="glass p-6 rounded-xl"><h3 class="text-xl font-bold text-white mb-4">💰 User Top Up</h3><form action="/admin/topup" method="POST" class="space-y-3"><input name="username" placeholder="Username" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><div class="flex gap-2"><input name="amount" type="number" placeholder="Amount" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><button class="bg-blue-600 px-4 rounded text-white font-bold">Add</button></div></form></div>
+            <div class="glass p-6 rounded-xl">
+                <h3 class="text-lg font-bold text-white mb-2">👥 Users</h3>
+                ${AdminUserTable(userListHtml, encodedUserCursor)}
+            </div>
+          </div>
+          <div class="lg:col-span-2 space-y-8">
+            <div class="glass p-6 rounded-xl"><h3 class="text-xl font-bold text-white mb-4">➕ Add Product</h3><form action="/admin/add" method="POST" class="space-y-3"><div class="grid grid-cols-2 gap-4"><input name="name" placeholder="Name" required class="bg-slate-800 border border-slate-600 rounded p-2 text-white"><input name="price" type="number" placeholder="Price" required class="bg-slate-800 border border-slate-600 rounded p-2 text-white"></div><input name="desc" placeholder="Description" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><select name="type" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><option value="manual">Manual Stock</option><option value="api">API Link</option></select><input name="imageUrl" placeholder="Image URL (Optional)" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><textarea name="data" placeholder="Codes (Manual) or URL (API)" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-20"></textarea><button class="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-2 rounded">Add Product</button></form></div>
+            <div class="glass p-6 rounded-xl overflow-x-auto"><h3 class="text-xl font-bold text-white mb-4">📦 Inventory</h3><table class="w-full text-left text-slate-300 text-sm"><thead class="bg-slate-700 text-white uppercase"><tr><th class="p-3">Name</th><th class="p-3">Price</th><th class="p-3">Stock</th><th class="p-3">Actions</th></tr></thead><tbody>${prodRows}</tbody></table></div>
+            ${AdminSalesTable(sales, encodedSaleCursor)}
+          </div>
+        </div>
+      `, user));
+  } catch (e) {
+      return c.html(`<h1>Admin Error</h1><p>${e}</p><a href="/">Back</a>`);
   }
-  const encodedUserCursor = nextUserCursor ? btoa(JSON.stringify(nextUserCursor)) : null;
-
-  // Sales (Pagination)
-  const saleCursor = c.req.query("sale_cursor");
-  const saleIter = kv.list<GlobalSale>({ prefix: ["global_sales"] }, { limit: 10, reverse: true, cursor: saleCursor });
-  const sales: GlobalSale[] = [];
-  let nextSaleCursor = null;
-  for await (const entry of saleIter) { sales.push(entry.value); nextSaleCursor = entry.key; }
-  const encodedSaleCursor = nextSaleCursor ? btoa(JSON.stringify(nextSaleCursor)) : null;
-
-  const config = await getConfig();
-
-  return c.html(Layout("Admin", `
-    <div class="grid lg:grid-cols-3 gap-8">
-      <div class="lg:col-span-1 space-y-6">
-        <div class="glass p-6 rounded-xl border-l-4 border-yellow-500 space-y-4">
-            <h3 class="text-xl font-bold text-white">⚙️ Configuration</h3>
-            <form action="/admin/config" method="POST" class="space-y-3">
-                <div class="grid grid-cols-2 gap-2">
-                    <label class="flex items-center space-x-2 cursor-pointer bg-slate-800 p-2 rounded border ${config.maintenance ? 'border-red-500' : 'border-slate-600'}"><input type="checkbox" name="maintenance" ${config.maintenance ? 'checked' : ''}><span class="text-xs text-white">Maintenance</span></label>
-                    <label class="flex items-center space-x-2 cursor-pointer bg-slate-800 p-2 rounded border ${config.noReg ? 'border-red-500' : 'border-slate-600'}"><input type="checkbox" name="noReg" ${config.noReg ? 'checked' : ''}><span class="text-xs text-white">No Register</span></label>
-                </div>
-                <div class="bg-slate-900/50 p-3 rounded border border-slate-600"><label class="flex items-center space-x-2 cursor-pointer mb-2"><input type="checkbox" name="bonusActive" ${config.bonusActive ? 'checked' : ''}><span class="text-xs text-green-400 font-bold uppercase">Welcome Bonus Active</span></label><input name="bonusAmount" type="number" value="${config.bonusAmount}" placeholder="Bonus Amount (Ks)" class="w-full bg-slate-800 border border-slate-600 rounded p-1 text-white text-sm"></div>
-                <div><label class="text-xs text-slate-400 uppercase">Announcement</label><input name="banner" value="${config.banner}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm"></div>
-                <div><label class="text-xs text-slate-400 uppercase">Telegram</label><input name="telegram" value="${config.telegram}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm"></div>
-                <div><label class="text-xs text-slate-400 uppercase">Payment Details</label><textarea name="payment" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm h-20">${config.payment}</textarea></div>
-                <button class="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-2 rounded font-bold w-full">Update Settings</button>
-            </form>
-        </div>
-        <div class="glass p-6 rounded-xl border-l-4 border-purple-500"><h3 class="text-xl font-bold text-white mb-4">🎟️ Create Voucher</h3><form action="/admin/voucher" method="POST" class="space-y-3"><input name="code" placeholder="Voucher Code (e.g. HAPPY)" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white uppercase"><div class="flex gap-2"><input name="amount" type="number" placeholder="Amount" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><button class="bg-purple-600 px-4 rounded text-white font-bold">Create</button></div></form></div>
-        <div class="glass p-6 rounded-xl"><h3 class="text-xl font-bold text-white mb-4">💰 User Top Up</h3><form action="/admin/topup" method="POST" class="space-y-3"><input name="username" placeholder="Username" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><div class="flex gap-2"><input name="amount" type="number" placeholder="Amount" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><button class="bg-blue-600 px-4 rounded text-white font-bold">Add</button></div></form></div>
-        <div class="glass p-6 rounded-xl">
-            <h3 class="text-lg font-bold text-white mb-2">👥 Users</h3>
-            ${AdminUserTable(userListHtml, encodedUserCursor)}
-        </div>
-      </div>
-      <div class="lg:col-span-2 space-y-8">
-        <div class="glass p-6 rounded-xl"><h3 class="text-xl font-bold text-white mb-4">➕ Add Product</h3><form action="/admin/add" method="POST" class="space-y-3"><div class="grid grid-cols-2 gap-4"><input name="name" placeholder="Name" required class="bg-slate-800 border border-slate-600 rounded p-2 text-white"><input name="price" type="number" placeholder="Price" required class="bg-slate-800 border border-slate-600 rounded p-2 text-white"></div><input name="desc" placeholder="Description" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><select name="type" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><option value="manual">Manual Stock</option><option value="api">API Link</option></select><input name="imageUrl" placeholder="Image URL (Optional)" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><textarea name="data" placeholder="Codes (Manual) or URL (API)" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-20"></textarea><button class="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-2 rounded">Add Product</button></form></div>
-        <div class="glass p-6 rounded-xl overflow-x-auto"><h3 class="text-xl font-bold text-white mb-4">📦 Inventory</h3><table class="w-full text-left text-slate-300 text-sm"><thead class="bg-slate-700 text-white uppercase"><tr><th class="p-3">Name</th><th class="p-3">Price</th><th class="p-3">Stock</th><th class="p-3">Actions</th></tr></thead><tbody>${prodRows}</tbody></table></div>
-        ${AdminSalesTable(sales, encodedSaleCursor)}
-      </div>
-    </div>
-  `, user));
 });
 
 app.post("/admin/refund", async (c) => {
     const user = await getSessionUser(c);
     if (!user?.isAdmin) return c.redirect("/");
     const body = await c.req.parseBody();
-    const success = await processRefund(body.username as string, Number(body.date), body.id as string);
-    return c.redirect("/admin"); // Reloads admin to show updated status
+    await processRefund(body.username as string, Number(body.date), body.id as string);
+    return c.redirect("/admin");
 });
 
-// (Other Admin POST routes remain same...)
 app.post("/admin/block", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const targetUsername = body.username as string; const shouldBlock = body.status === 'block'; const targetUser = await getUser(targetUsername); if(targetUser) { await updateUser({ ...targetUser, isBlocked: shouldBlock }); } return c.redirect("/admin"); });
 app.post("/admin/config", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); await setConfig("banner", body.banner as string); await setConfig("telegram", body.telegram as string); await setConfig("payment", body.payment as string); await setConfig("maintenance", body.maintenance === "on"); await setConfig("no_reg", body.noReg === "on"); await setConfig("bonus_active", body.bonusActive === "on"); await setConfig("bonus_amount", Number(body.bonusAmount)); return c.redirect("/admin"); });
 app.post("/admin/voucher", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const code = (body.code as string).trim().toUpperCase(); const amount = Number(body.amount); await createVoucher(code, amount); return c.redirect("/admin"); });
