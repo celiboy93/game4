@@ -1,4 +1,4 @@
-import { User, Product, Transaction, GlobalSale } from "./db.ts";
+import { User, Product, Transaction, GlobalSale, TwoDResult, TwoDBet } from "./db.ts";
 
 const AVATARS = ["😎", "👾", "🤖", "👻", "👽", "🐯", "🐼", "🦊", "🦁", "🐷", "🐸", "💀"];
 
@@ -17,31 +17,51 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
         if (!typeEl) return;
         const type = typeEl.value;
         
-        ['input-manual', 'input-api', 'input-shared'].forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.style.display = 'none';
-        });
+        // Safely try to hide elements if they exist
+        const manualDiv = document.getElementById('input-manual');
+        const apiDiv = document.getElementById('input-api');
+        const sharedDiv = document.getElementById('input-shared');
 
-        if (type === 'manual') document.getElementById('input-manual').style.display = 'block';
-        else if (type === 'api') document.getElementById('input-api').style.display = 'block';
-        else if (type === 'shared') document.getElementById('input-shared').style.display = 'block';
+        if(manualDiv) manualDiv.style.display = 'none';
+        if(apiDiv) apiDiv.style.display = 'none';
+        if(sharedDiv) sharedDiv.style.display = 'none';
+
+        if (type === 'manual' && manualDiv) manualDiv.style.display = 'block';
+        else if (type === 'api' && apiDiv) apiDiv.style.display = 'block';
+        else if (type === 'shared' && sharedDiv) sharedDiv.style.display = 'block';
     }
 
     document.addEventListener("DOMContentLoaded", () => {
+        // Call toggle once on load for Admin pages
+        toggleProductInputs();
+
         const path = window.location.pathname;
         const navIds = {
-            '/': 'nav-home', '/history': 'nav-history', '/profile': 'nav-profile', '/deposit': 'nav-profile', '/transfer': 'nav-profile', '/2d': 'nav-2d'
+            '/': 'nav-home', 
+            '/history': 'nav-history', 
+            '/profile': 'nav-profile', 
+            '/deposit': 'nav-profile', 
+            '/transfer': 'nav-profile', 
+            '/2d': 'nav-2d'
         };
         const activeId = navIds[path] || 'nav-home';
         const el = document.getElementById(activeId);
-        if(el) { el.classList.remove('text-slate-500'); el.classList.add('text-blue-500'); }
+        if(el) { 
+            el.classList.remove('text-slate-500'); 
+            el.classList.add('text-blue-500'); 
+        }
 
+        // Slider Logic
         const sliderTrack = document.getElementById('sliderTrack');
         if(sliderTrack && sliderTrack.children.length > 1) {
             let index = 0; const count = sliderTrack.children.length;
-            setInterval(() => { index = (index + 1) % count; sliderTrack.style.transform = \`translateX(-\${index * 100}%)\`; }, 3500);
+            setInterval(() => { 
+                index = (index + 1) % count; 
+                sliderTrack.style.transform = \`translateX(-\${index * 100}%)\`; 
+            }, 3500);
         }
         
+        // Lazy Stock Loader
         const apiProducts = document.querySelectorAll(".api-stock-loader");
         apiProducts.forEach(async (el) => {
             const id = el.dataset.id;
@@ -53,6 +73,7 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
             } catch { el.innerText = "?"; }
         });
 
+        // Page Loader
         const loader = document.getElementById('page-loader');
         document.querySelectorAll('a').forEach(link => {
             link.addEventListener('click', (e) => {
@@ -71,6 +92,7 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
         // 2D Live Fetcher
         const liveNum = document.getElementById('live-2d-num');
         if(liveNum) {
+            fetch2DHistory(); // Initial Load History
             setInterval(async () => {
                 try {
                     const res = await fetch('/api/2d-proxy');
@@ -86,7 +108,43 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
         }
     });
     
-    window.addEventListener('pageshow', (event) => { if (event.persisted) { document.getElementById('page-loader').classList.add('hidden'); } });
+    window.addEventListener('pageshow', (event) => { 
+        if (event.persisted) { document.getElementById('page-loader').classList.add('hidden'); } 
+    });
+
+    // 2D History Helper
+    async function fetch2DHistory() {
+        const list = document.getElementById('history-list');
+        const monthPicker = document.getElementById('month-picker');
+        if(!list) return;
+        
+        const month = monthPicker ? monthPicker.value : new Date().toISOString().slice(0, 7);
+        list.innerHTML = '<div class="text-center p-4 text-slate-500 text-xs">Loading...</div>';
+        
+        try {
+            const res = await fetch('/api/2d-history?month=' + month);
+            const data = await res.json();
+            let html = '';
+            if (data.length === 0) {
+                html = '<div class="text-center p-4 text-slate-500 text-xs">No records found.</div>';
+            } else {
+                data.forEach(item => {
+                    html += \`
+                    <div class="flex justify-between items-center p-3 border-b border-slate-700 hover:bg-slate-800/50 transition">
+                        <div class="text-slate-400 text-xs">\${item.date}<br><span class="text-slate-500">\${item.time}</span></div>
+                        <div class="flex gap-3 text-sm font-bold">
+                            <div class="text-center"><span class="text-[10px] text-slate-500 block">SET</span>\${item.set}</div>
+                            <div class="text-center"><span class="text-[10px] text-slate-500 block">VAL</span>\${item.value}</div>
+                            <div class="text-center bg-yellow-500/20 px-2 rounded border border-yellow-500/30"><span class="text-[10px] text-yellow-600 block">2D</span><span class="text-yellow-400 text-lg">\${item.twod}</span></div>
+                        </div>
+                    </div>\`;
+                });
+            }
+            list.innerHTML = html;
+        } catch {
+            list.innerHTML = '<div class="text-center p-4 text-red-400">Failed to load history</div>';
+        }
+    }
 
     function copyToClipboard(text, btnId = 'copyBtn') {
         navigator.clipboard.writeText(text).then(() => {
@@ -127,7 +185,10 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
            btn.innerText = "🚫 Out of Stock";
            btn.removeAttribute("onclick");
         }
-        if(badge) { badge.classList.remove("bg-green-500/20", "text-green-400"); badge.classList.add("bg-red-500/20", "text-red-400"); }
+        if(badge) {
+           badge.classList.remove("bg-green-500/20", "text-green-400");
+           badge.classList.add("bg-red-500/20", "text-red-400");
+        }
     }
 
     let selectedProductId = null;
@@ -325,7 +386,7 @@ export const ImageSlider = (images: string[]) => `
 `;
 
 export const AuthForm = (type: "Login" | "Register", error?: string) => `
-<div class="max-w-md mx-auto glass p-8 rounded-2xl shadow-2xl">
+<div class="max-w-md mx-auto glass p-8 rounded-2xl shadow-2xl mt-10">
   <h2 class="text-3xl font-bold text-center mb-6 text-white">${type}</h2>
   ${error ? `<div class="bg-red-500/20 border border-red-500 text-red-200 p-3 rounded mb-4 text-center">${error}</div>` : ''}
   <form method="POST" class="space-y-4">
@@ -408,33 +469,6 @@ export const HistoryTable = (transactions: Transaction[], nextCursor: string | n
     return `<div class="flex gap-2 mb-6 bg-slate-900/50 p-1 rounded-xl">${tabsHtml}</div><div class="glass rounded-xl overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-left"><thead class="bg-slate-800 text-slate-300 uppercase text-xs"><tr><th class="p-4">Date</th><th class="p-4">Type</th><th class="p-4">Description</th><th class="p-4 text-right">Amount</th></tr></thead><tbody class="divide-y divide-slate-700">${rows}</tbody></table></div>${nextCursor ? `<div class="p-4 text-center border-t border-slate-700"><a href="/history?filter=${activeTab}&cursor=${nextCursor}" class="inline-block bg-slate-700 hover:bg-slate-600 text-white px-6 py-2 rounded transition">Load Next 10 Entries</a></div>` : ''}</div>`;
 };
 
-export const TwoDPage = (user: User) => Layout("2D Live", `
-    <div class="max-w-md mx-auto">
-        <div class="glass rounded-2xl p-1 mb-6 border border-yellow-500/30 relative overflow-hidden">
-            <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-yellow-400 to-red-500"></div>
-            <div class="p-6 text-center">
-                <div class="flex justify-center items-center gap-2 mb-4">
-                    <span class="relative flex h-3 w-3"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span><span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span></span>
-                    <h2 class="text-lg font-bold text-slate-300 tracking-widest uppercase">Thai SET Index</h2>
-                </div>
-                <div class="mb-6">
-                    <div class="text-8xl font-black text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 to-yellow-600 tracking-tighter drop-shadow-xl" id="live-2d-num">--</div>
-                    <div class="text-sm text-slate-500 font-mono mt-2">Updated: <span id="live-time">--:--:--</span></div>
-                </div>
-                <div class="grid grid-cols-2 gap-4 text-sm">
-                    <div class="bg-slate-800 p-3 rounded-xl border border-slate-700"><div class="text-slate-400 mb-1">SET</div><div class="text-xl font-bold text-blue-400 font-mono" id="live-set">0.00</div></div>
-                    <div class="bg-slate-800 p-3 rounded-xl border border-slate-700"><div class="text-slate-400 mb-1">VALUE</div><div class="text-xl font-bold text-green-400 font-mono" id="live-val">0.00</div></div>
-                </div>
-            </div>
-        </div>
-        <div class="glass p-6 rounded-2xl text-center border border-slate-700/50">
-            <div class="text-4xl mb-3">🎲</div>
-            <h3 class="text-xl font-bold text-white mb-2">Betting Coming Soon!</h3>
-            <p class="text-slate-400 text-sm">ထိုးသားစနစ်ကို မကြာမီ ဖွင့်လှစ်ပေးပါမည်။</p>
-        </div>
-    </div>
-`, user);
-
 export const ProfilePage = (user: User, bonusConfig: {active: boolean, amount: number}, message?: {type: 'success'|'error', text: string}) => {
     const avatarGrid = AVATARS.map(av => `<div id="av-${av}" onclick="selectAvatar('${av}')" class="avatar-option text-4xl p-3 bg-slate-800 rounded-xl cursor-pointer hover:bg-slate-700 transition border border-slate-600 flex justify-center items-center ${user.avatar === av ? 'ring-4 ring-blue-500' : ''}">${av}</div>`).join("");
     return Layout("Profile", `
@@ -498,3 +532,70 @@ export const AdminSalesTable = (sales: GlobalSale[], nextCursor: string | null) 
     if(sales.length === 0) rows = `<tr><td colspan="5" class="p-4 text-center text-slate-500">No recent sales.</td></tr>`;
     return `<div class="glass rounded-xl overflow-hidden mt-6"><div class="px-6 py-4 border-b border-slate-700"><h3 class="text-lg font-bold text-white">🛒 Recent Sales Log</h3></div><div class="overflow-x-auto"><table class="w-full text-left"><thead class="bg-slate-800 text-slate-300 uppercase text-xs"><tr><th class="p-3">Date</th><th class="p-3">User</th><th class="p-3">Item</th><th class="p-3">Price</th><th class="p-3">Action</th></tr></thead><tbody class="divide-y divide-slate-700">${rows}</tbody></table></div>${nextCursor ? `<div class="p-3 text-center border-t border-slate-700"><a href="/admin?sale_cursor=${nextCursor}" class="text-blue-400 hover:underline">Load More Sales</a></div>` : ''}</div>`;
 }
+
+export const TwoDPage = (user: User, bets: TwoDBet[]) => {
+    let betHistoryHtml = '';
+    if(bets.length === 0) {
+        betHistoryHtml = '<div class="text-center p-4 text-slate-500 text-xs">No active bets today.</div>';
+    } else {
+        bets.forEach(b => {
+            let statusColor = 'text-yellow-400';
+            if(b.status === 'win') statusColor = 'text-green-400';
+            if(b.status === 'lose') statusColor = 'text-red-400';
+            betHistoryHtml += `
+            <div class="flex justify-between items-center p-3 border-b border-slate-700 last:border-0">
+                <div class="text-xs text-slate-400">${b.time} <br> ${new Date(b.timestamp).toLocaleTimeString()}</div>
+                <div class="font-bold text-white text-lg">${b.number}</div>
+                <div class="text-right">
+                    <div class="text-green-400 text-sm">${b.amount} Ks</div>
+                    <div class="text-[10px] uppercase ${statusColor}">${b.status}</div>
+                </div>
+            </div>`;
+        });
+    }
+
+    return Layout("2D Live", `
+    <div class="max-w-md mx-auto">
+        <div class="glass rounded-2xl p-1 mb-6 border border-yellow-500/30 relative overflow-hidden">
+            <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-yellow-400 to-red-500"></div>
+            <div class="p-6 text-center">
+                <div class="flex justify-center items-center gap-2 mb-4">
+                    <span class="relative flex h-3 w-3"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span><span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span></span>
+                    <h2 class="text-lg font-bold text-slate-300 tracking-widest uppercase">Thai SET Index</h2>
+                </div>
+                <div class="mb-6">
+                    <div class="text-8xl font-black text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 to-yellow-600 tracking-tighter drop-shadow-xl" id="live-2d-num">--</div>
+                    <div class="text-sm text-slate-500 font-mono mt-2">Updated: <span id="live-time">--:--:--</span></div>
+                </div>
+                <div class="grid grid-cols-2 gap-4 text-sm">
+                    <div class="bg-slate-800 p-3 rounded-xl border border-slate-700"><div class="text-slate-400 mb-1">SET</div><div class="text-xl font-bold text-blue-400 font-mono" id="live-set">0.00</div></div>
+                    <div class="bg-slate-800 p-3 rounded-xl border border-slate-700"><div class="text-slate-400 mb-1">VALUE</div><div class="text-xl font-bold text-green-400 font-mono" id="live-val">0.00</div></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="glass p-6 rounded-2xl mb-6 border border-blue-500/30">
+            <h3 class="text-lg font-bold text-white mb-4 flex items-center gap-2">🎰 Place Bet</h3>
+            <form action="/2d/bet" method="POST" class="space-y-3">
+                <div class="grid grid-cols-2 gap-3">
+                    <input name="number" type="number" min="0" max="99" placeholder="Number (00-99)" required class="bg-slate-900 border border-slate-600 rounded-lg p-3 text-white text-center text-lg font-bold focus:ring-2 focus:ring-blue-500 outline-none">
+                    <input name="amount" type="number" min="100" placeholder="Amount (Ks)" required class="bg-slate-900 border border-slate-600 rounded-lg p-3 text-white text-center text-lg font-bold focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+                <button class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition shadow-lg shadow-blue-500/20">Bet Now</button>
+            </form>
+        </div>
+
+        <div class="glass rounded-xl overflow-hidden border border-slate-700/50 mb-6">
+            <div class="px-4 py-3 bg-slate-800/50 border-b border-slate-700 text-slate-300 font-bold text-sm uppercase tracking-wider">My Bets (Today)</div>
+            <div class="max-h-48 overflow-y-auto">${betHistoryHtml}</div>
+        </div>
+
+        <div class="glass rounded-xl overflow-hidden border border-slate-700/50">
+            <div class="flex justify-between items-center px-4 py-3 bg-slate-800/50 border-b border-slate-700">
+                <span class="text-slate-300 font-bold text-sm uppercase tracking-wider">History</span>
+                <input type="month" id="month-picker" value="${new Date().toISOString().slice(0, 7)}" class="bg-slate-900 text-white text-xs p-1 rounded border border-slate-600 outline-none">
+            </div>
+            <div id="history-list" class="max-h-64 overflow-y-auto"><div class="p-4 text-center text-slate-500 text-xs">Loading history...</div></div>
+        </div>
+    </div>
+`, user);
