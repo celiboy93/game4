@@ -17,14 +17,13 @@ export interface Product {
   apiUrl?: string;
 }
 
-// New: Transaction History Structure
 export interface Transaction {
   id: string;
   type: "purchase" | "topup";
-  itemName: string; // Product Name or "Admin Topup"
+  itemName: string;
   amount: number;
-  detail: string;   // The Code/Key or Note
-  date: number;     // Timestamp
+  detail: string;
+  date: number;
 }
 
 export async function getUser(username: string) {
@@ -37,12 +36,21 @@ export async function getProduct(id: string) {
   return res.value;
 }
 
-// Helper to add history
 export async function addHistory(username: string, type: "purchase" | "topup", itemName: string, amount: number, detail: string) {
   const id = crypto.randomUUID();
   const transaction: Transaction = {
     id, type, itemName, amount, detail, date: Date.now()
   };
-  // Key structure: history > username > timestamp (descending via logic) > id
   await kv.set(["history", username, Date.now(), id], transaction);
+}
+
+// New: Check if a key is already sold
+export async function isKeySold(key: string) {
+  const res = await kv.get(["sold_keys", key]);
+  return res.value !== null;
+}
+
+// New: Mark a key as sold
+export async function markKeyAsSold(key: string, username: string) {
+  await kv.set(["sold_keys", key], { soldTo: username, date: Date.now() });
 }
