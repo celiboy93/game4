@@ -17,6 +17,10 @@
         .modal-content { background: #222; padding: 20px; width: 90%; max-width: 400px; border-radius: 10px; max-height: 80vh; overflow-y: auto; }
         .result-code { background: #000; color: #0f0; padding: 10px; border-radius: 5px; margin: 15px 0; font-family: monospace; word-break: break-all; }
         .delete-btn { background: #d32f2f; color: white; }
+        
+        /* History List Styles */
+        .history-item { background: #333; padding: 10px; margin-bottom: 10px; border-radius: 5px; border-left: 4px solid #ffd700; }
+        .history-item .date { font-size: 12px; color: #aaa; }
     </style>
 </head>
 <body>
@@ -32,21 +36,13 @@
             <h2>GENERATE NEW CODE</h2>
             <p style="color:#aaa;">Select the type of code you need to generate. Price will be deducted from your wallet.</p>
             <select id="codeType" class="inp-field">
-                <option value="key">Loading options...</option>
+                <option value="">Select Item</option>
             </select>
             <button id="generateBtn" class="action-btn" style="background: #4CAF50;">GENERATE CODE NOW</button>
         </div>
         
         <div id="adminArea" style="display: none;">
-            <h2>ADMIN TOOLS (STOCK & TOPUP)</h2>
-            <div class="section" style="border-color: #0f0;">
-                <h3 style="color:#0f0; margin-top:0;">TOP UP USER</h3>
-                <form id="topupForm">
-                    <input type="text" id="topupUser" class="inp-field" placeholder="Username">
-                    <input type="number" id="topupAmount" class="inp-field" placeholder="Amount (MMK)">
-                    <button type="submit" style="background: #009688;">ADD MONEY</button>
-                </form>
-            </div>
+            <h2 style="color:red;">ADMIN TOOLS</h2>
             <div class="section">
                 <h3 style="color:red; margin-top:0;">ADD NEW STOCK</h3>
                 <form id="addStockForm">
@@ -58,6 +54,14 @@
                     </select>
                     <textarea id="stockCodes" rows="4" class="inp-field" placeholder="Codes (one per line)" required></textarea>
                     <button type="submit" class="action-btn" style="background: #2196F3;">ADD STOCK</button>
+                </form>
+            </div>
+            <div class="section">
+                <h3 style="color:#0f0; margin-top:0;">TOP UP USER</h3>
+                <form id="topupForm">
+                    <input type="text" id="topupUser" class="inp-field" placeholder="Username">
+                    <input type="number" id="topupAmount" class="inp-field" placeholder="Amount (MMK)">
+                    <button type="submit" style="background: #009688;">ADD MONEY</button>
                 </form>
             </div>
         </div>
@@ -81,7 +85,7 @@
             <h2 style="color: #0f0;">SUCCESS!</h2>
             <p>Your new code is:</p>
             <div id="purchasedCodeDisplay" class="result-code"></div>
-            <button class="copy-btn" onclick="copyCode()">COPY CODE</button>
+            <button class="copy-btn" id="copyBtn">COPY CODE</button>
             <button class="close-btn" onclick="closeModal('successModal')">CLOSE</button>
         </div>
     </div>
@@ -90,8 +94,9 @@
     </div>
     
     <script>
-        // --- Core Functions ---
         
+        let allItems = [];
+
         function showAdminTools(isAdmin) {
             document.getElementById('adminArea').style.display = isAdmin ? 'block' : 'none';
         }
@@ -99,10 +104,11 @@
         async function loadItemsAndUI() {
             const itemRes = await fetch('/api/items');
             const items = await itemRes.json();
-            
+            allItems = items;
+
             // 1. Populate Generator Dropdown
             const select = document.getElementById('codeType');
-            select.innerHTML = '';
+            select.innerHTML = '<option value="">Select Item</option>';
             
             // 2. Render Visible Item List
             const listDisplay = document.getElementById('itemListDisplay');
@@ -136,11 +142,46 @@
             await loadItemsAndUI();
         }
 
+        // --- Utility & Modal Functions ---
+        function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+        function closeModal(id) { 
+            document.getElementById(id).style.display = 'none';
+        }
+        function copyCode() { 
+            const code = document.getElementById('purchasedCodeDisplay').textContent;
+            navigator.clipboard.writeText(code).then(() => {
+                alert('Code copied!');
+            });
+        }
+        
+        async function showHistory() {
+            openModal('historyModal');
+            const list = document.getElementById('historyList');
+            list.innerHTML = 'Loading...';
+
+            const res = await fetch('/api/history');
+            const data = await res.json();
+
+            list.innerHTML = '';
+            if(data.length === 0) { list.innerHTML = '<p style="text-align:center;">No purchases yet.</p>'; return; }
+            data.forEach(record => {
+                const item = document.createElement('div');
+                item.className = 'history-item';
+                item.innerHTML = `
+                    <strong>${record.itemName}</strong>
+                    <div class="date">${record.date}</div>
+                    <span class="result-code" style="margin-bottom: 5px;">${record.code}</span>
+                `;
+                list.appendChild(item);
+            });
+        }
+
+
         // --- Event Handlers ---
         
         document.getElementById('generateBtn').addEventListener('click', async () => {
             const codeType = document.getElementById('codeType').value;
-            if (!codeType || codeType === 'No items available') { alert("Please add stock first."); return; }
+            if (!codeType || codeType === 'No items available') { alert("Please select an item."); return; }
             
             const res = await fetch('/api/buy', {
                 method: 'POST',
@@ -193,21 +234,8 @@
             e.target.reset();
             init();
         });
-
-
-        // --- Utility Functions ---
-        function openModal(id) { document.getElementById(id).style.display = 'flex'; }
-        function closeModal(id) { 
-            document.getElementById(id).style.display = 'none';
-        }
-        function copyCode() { 
-            const code = document.getElementById('purchasedCodeDisplay').textContent;
-            navigator.clipboard.writeText(code).then(() => {
-                alert('Code copied!');
-            });
-        }
-        async function showHistory() { /* ... history fetch logic ... */ } // Placeholder
-        document.getElementById('topupUser').value = 'admin';
+        
+        document.getElementById('topupUser').value = 'admin'; // Set default topup user for testing
 
         init();
     </script>
