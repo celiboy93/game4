@@ -5,6 +5,24 @@ import { Layout, AuthForm, ProductCard, HistoryTable, MaintenancePage, ProfilePa
 
 const app = new Hono();
 
+// --- NEW: Safe Cursor Helpers (Fixes Myanmar Text Error) ---
+function encodeCursor(cursor: any) {
+    try {
+        // encodeURIComponent fixes the Unicode/Myanmar text issue
+        return btoa(encodeURIComponent(JSON.stringify(cursor)));
+    } catch {
+        return null;
+    }
+}
+
+function decodeCursor(str: string) {
+    try {
+        return JSON.parse(decodeURIComponent(atob(str)));
+    } catch {
+        return undefined;
+    }
+}
+
 async function getApiAvailableStock(p: Product): Promise<number | string> {
     if (!p.apiUrl) return 0;
     try {
@@ -185,7 +203,6 @@ app.post("/buy", async (c) => {
     } catch { return c.json({ success: false, message: "API Connection Error" }); }
   }
   const tx = await addHistory(user.username, "purchase", product.name, product.price, finalDisplayCode);
-  // Check if tx exists (in case db.ts is not updated yet, though we updated it above)
   if(tx) await addGlobalSale(user.username, tx);
   
   return c.json({ success: true, code: finalDisplayCode, newBalance: user.balance - product.price });
@@ -204,10 +221,29 @@ app.get("/check-stock", async (c) => {
 });
 
 app.get("/history", async (c) => {
-  const user = await getSessionUser(c); if (!user) return c.redirect("/login"); const cursor = c.req.query("cursor"); const filter = c.req.query("filter") || "all";
-  const iter = kv.list<Transaction>({ prefix: ["history", user.username] }, { limit: 50, reverse: true, cursor: cursor }); const transactions: Transaction[] = []; let nextCursor = null; 
-  for await (const entry of iter) { const t = entry.value; if (filter === 'purchase' && (t.type === 'purchase' || t.type === 'transfer_sent')) transactions.push(t); else if (filter === 'topup' && (t.type === 'topup' || t.type === 'voucher' || t.type === 'bonus' || t.type === 'transfer_received' || t.type === 'refund')) transactions.push(t); else if (filter === 'all') transactions.push(t); nextCursor = entry.key; if(transactions.length >= 10) break; }
-  const encodedCursor = nextCursor ? btoa(JSON.stringify(nextCursor)) : null;
+  const user = await getSessionUser(c); 
+  if (!user) return c.redirect("/login"); 
+  
+  // Use safe decode
+  const cursor = c.req.query("cursor");
+  const decodedCursor = cursor ? decodeCursor(cursor) : undefined;
+  const filter = c.req.query("filter") || "all";
+
+  const iter = kv.list<Transaction>({ prefix: ["history", user.username] }, { limit: 50, reverse: true, cursor: decodedCursor }); 
+  const transactions: Transaction[] = [];
+  let nextCursor = null;
+  
+  for await (const entry of iter) { 
+      const t = entry.value;
+      if (filter === 'purchase' && (t.type === 'purchase' || t.type === 'transfer_sent')) transactions.push(t); 
+      else if (filter === 'topup' && (t.type === 'topup' || t.type === 'voucher' || t.type === 'bonus' || t.type === 'transfer_received' || t.type === 'refund')) transactions.push(t); 
+      else if (filter === 'all') transactions.push(t); 
+      nextCursor = entry.key; 
+      if(transactions.length >= 10) break; 
+  }
+  
+  // Use safe encode
+  const encodedCursor = nextCursor ? encodeCursor(nextCursor) : null;
   return c.html(Layout("History", `<div class="max-w-4xl mx-auto"><h1 class="text-3xl font-bold text-white mb-6">Transaction History</h1>${HistoryTable(transactions, encodedCursor, filter)}<div class="mt-4 text-center text-slate-500 text-sm"><a href="/" class="hover:text-blue-400">← Back to Shop</a></div></div>`, user));
 });
 
@@ -251,13 +287,10 @@ app.get("/admin", async (c) => {
       for await (const { value: p } of prodIter) { const stockDisplay = p.type === 'manual' ? p.stock.length : 'Auto (API)'; prodRows += `<tr class="border-b border-slate-700 hover:bg-slate-800"><td class="p-3">${p.name}</td><td class="p-3">${p.price.toLocaleString()} Ks</td><td class="p-3">${stockDisplay}</td><td class="p-3 flex gap-2"><a href="/admin/edit?id=${p.id}" class="text-yellow-400 hover:underline">Edit</a><form action="/admin/delete" method="POST" onsubmit="return confirm('Are you sure?')" style="margin:0;"><input type="hidden" name="id" value="${p.id}"><button class="text-red-400 hover:underline">Delete</button></form></td></tr>`; }
       
       // Safe User Cursor
-      let userCursor = undefined;
-      try { 
-        const q = c.req.query("user_cursor");
-        if(q) userCursor = JSON.parse(atob(q)); 
-      } catch {}
-
-      const userIter = kv.list<User>({ prefix: ["users"] }, { limit: 10, cursor: userCursor });
+      const userCursor = c.req.query("user_cursor");
+      const decodedUserCursor = userCursor ? decodeCursor(userCursor) : undefined;
+      
+      const userIter = kv.list<User>({ prefix: ["users"] }, { limit: 10, cursor: decodedUserCursor });
       let userListHtml = "";
       let nextUserCursor = null;
       for await (const { value: u, key } of userIter) {
@@ -266,20 +299,17 @@ app.get("/admin", async (c) => {
               userListHtml += `<div class="flex justify-between items-center border-b border-slate-700 py-2 text-sm"><div><span class="text-slate-300 select-all cursor-pointer font-bold" onclick="document.querySelector('input[name=username]').value = '${u.username}'">${u.username}</span><span class="text-xs ml-2 ${u.isBlocked ? 'text-red-500' : 'text-green-500'}">${u.isBlocked ? '(Blocked)' : '(Active)'}</span></div><div class="flex items-center gap-2"><span class="text-green-400">${u.balance.toLocaleString()} Ks</span><form action="/admin/block" method="POST" style="margin:0"><input type="hidden" name="username" value="${u.username}"><input type="hidden" name="status" value="${u.isBlocked ? 'unblock' : 'block'}"><button class="text-xs px-2 py-1 rounded ${u.isBlocked ? 'bg-green-600' : 'bg-red-600'} text-white">${u.isBlocked ? 'Unblock' : 'Block'}</button></form></div></div>`; 
           } 
       }
-      const encodedUserCursor = nextUserCursor ? btoa(JSON.stringify(nextUserCursor)) : null;
+      const encodedUserCursor = nextUserCursor ? encodeCursor(nextUserCursor) : null;
 
       // Safe Sale Cursor
-      let saleCursor = undefined;
-      try { 
-        const q = c.req.query("sale_cursor");
-        if(q) saleCursor = JSON.parse(atob(q)); 
-      } catch {}
-
-      const saleIter = kv.list<GlobalSale>({ prefix: ["global_sales"] }, { limit: 10, reverse: true, cursor: saleCursor });
+      const saleCursor = c.req.query("sale_cursor");
+      const decodedSaleCursor = saleCursor ? decodeCursor(saleCursor) : undefined;
+      
+      const saleIter = kv.list<GlobalSale>({ prefix: ["global_sales"] }, { limit: 10, reverse: true, cursor: decodedSaleCursor });
       const sales: GlobalSale[] = [];
       let nextSaleCursor = null;
       for await (const entry of saleIter) { sales.push(entry.value); nextSaleCursor = entry.key; }
-      const encodedSaleCursor = nextSaleCursor ? btoa(JSON.stringify(nextSaleCursor)) : null;
+      const encodedSaleCursor = nextSaleCursor ? encodeCursor(nextSaleCursor) : null;
 
       const config = await getConfig();
 
@@ -315,7 +345,13 @@ app.get("/admin", async (c) => {
         </div>
       `, user));
   } catch (e) {
-      return c.html(`<h1>Admin Error</h1><p>${e}</p><a href="/">Back</a>`);
+      return c.html(Layout("Admin Error", `
+        <div class="max-w-md mx-auto glass p-8 rounded-xl text-center mt-10">
+            <h1 class="text-2xl font-bold text-red-400 mb-4">Admin Panel Error</h1>
+            <pre class="text-left bg-slate-900 p-4 rounded text-xs text-slate-400 overflow-x-auto mb-4">${e}</pre>
+            <a href="/" class="bg-slate-700 text-white px-6 py-2 rounded hover:bg-slate-600">Back Home</a>
+        </div>
+      `, await getSessionUser(c)));
   }
 });
 
