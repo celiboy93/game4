@@ -33,6 +33,8 @@ async function getSessionUser(c: any) {
   return await getUser(sessionUser);
 }
 
+// --- Routes ---
+
 app.get("/", async (c) => {
   const user = await getSessionUser(c);
   const config = await getConfig();
@@ -45,14 +47,13 @@ app.get("/", async (c) => {
   return c.html(Layout("Shop", `
     ${config.maintenance ? '<div class="bg-red-600 text-white text-center py-1 mb-4 rounded font-bold">⚠️ Maintenance Mode Active (Only Admin can see this)</div>' : ''}
     <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-        <h1 class="text-3xl font-bold text-white">Products</h1>
+        <h1 class="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-500">Kairizy Store</h1>
         <div class="relative w-full md:w-64"><input type="text" id="searchInput" onkeyup="filterProducts()" placeholder="Search products..." class="w-full bg-slate-800 border border-slate-700 text-white px-4 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none pl-10"><div class="absolute left-3 top-2.5 text-slate-400">🔍</div></div>
     </div>
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">${productsHtml || '<p class="text-slate-500 col-span-full text-center">No products available yet.</p>'}</div>
   `, user, config.banner));
 });
 
-// --- Transfer Routes (New) ---
 app.get("/transfer", async (c) => {
     const user = await getSessionUser(c);
     if (!user) return c.redirect("/login");
@@ -65,46 +66,25 @@ app.post("/transfer", async (c) => {
     const body = await c.req.parseBody();
     const receiverName = (body.receiver as string).trim();
     const amount = Number(body.amount);
-
-    // Validation
     if (amount < 500 || amount > 50000) return c.html(TransferPage(user, "Amount must be between 500 and 50,000 Ks"));
     if (receiverName === user.username) return c.html(TransferPage(user, "Cannot transfer to yourself"));
-
     const receiver = await getUser(receiverName);
     if (!receiver) return c.html(TransferPage(user, "Receiver not found"));
-
-    // Fee Logic
     const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
     const now = Date.now();
-    // If createdAt is undefined, treat as NEW user (Date.now()) to satisfy logic safely
     const senderJoined = user.createdAt || now;
     const receiverJoined = receiver.createdAt || now;
-
     const isSenderOld = (now - senderJoined) > THIRTY_DAYS;
     const isReceiverOld = (now - receiverJoined) > THIRTY_DAYS;
-
     const fee = (isSenderOld && isReceiverOld) ? 0 : 50;
     const totalDeduct = amount + fee;
-
     if (user.balance < totalDeduct) return c.html(TransferPage(user, `Insufficient balance. You need ${totalDeduct.toLocaleString()} Ks (Inc. ${fee} fee)`));
-
-    // Atomic Transfer
-    const res = await kv.atomic()
-        .check(await kv.get(["users", user.username]))
-        .check(await kv.get(["users", receiverName]))
-        .set(["users", user.username], { ...user, balance: user.balance - totalDeduct })
-        .set(["users", receiverName], { ...receiver, balance: receiver.balance + amount })
-        .commit();
-
+    const res = await kv.atomic().check(await kv.get(["users", user.username])).check(await kv.get(["users", receiverName])).set(["users", user.username], { ...user, balance: user.balance - totalDeduct }).set(["users", receiverName], { ...receiver, balance: receiver.balance + amount }).commit();
     if (!res.ok) return c.html(TransferPage(user, "Transfer failed. Please try again."));
-
-    // History
     await addHistory(user.username, "transfer_sent", `To: ${receiverName}`, totalDeduct, fee > 0 ? `Fee: ${fee} Ks` : "Free");
     await addHistory(receiverName, "transfer_received", `From: ${user.username}`, amount, "Received");
-
     return c.html(ProfilePage({ ...user, balance: user.balance - totalDeduct }, { active: false, amount: 0 }, { type: 'success', text: `Successfully sent ${amount.toLocaleString()} Ks to ${receiverName}` }));
 });
-
 
 app.get("/profile", async (c) => {
     const user = await getSessionUser(c);
@@ -225,8 +205,53 @@ app.get("/check-stock", async (c) => {
 });
 
 app.get("/history", async (c) => {
-  const user = await getSessionUser(c); if (!user) return c.redirect("/login"); const cursor = c.req.query("cursor"); const iter = kv.list<Transaction>({ prefix: ["history", user.username] }, { limit: 10, reverse: true, cursor: cursor }); const transactions: Transaction[] = []; let nextCursor = null; for await (const entry of iter) { transactions.push(entry.value); nextCursor = entry.key; } if (transactions.length < 10) nextCursor = null; const encodedCursor = nextCursor ? btoa(JSON.stringify(nextCursor)) : null;
-  return c.html(Layout("History", `<div class="max-w-4xl mx-auto"><h1 class="text-3xl font-bold text-white mb-6">Transaction History</h1>${HistoryTable(transactions, encodedCursor)}<div class="mt-4 text-center text-slate-500 text-sm"><a href="/" class="hover:text-blue-400">← Back to Shop</a></div></div>`, user));
+  const user = await getSessionUser(c); 
+  if (!user) return c.redirect("/login"); 
+  
+  const cursor = c.req.query("cursor");
+  const filter = c.req.query("filter") || "all"; // Get filter from URL
+
+  // Fetch a larger batch (50) because filtering happens after fetch in Deno KV simple list
+  const iter = kv.list<Transaction>({ prefix: ["history", user.username] }, { limit: 50, reverse: true, cursor: cursor }); 
+  
+  const transactions: Transaction[] = [];
+  let nextCursor = null;
+  
+  for await (const entry of iter) { 
+      const t = entry.value;
+      
+      // --- FILTER LOGIC ---
+      if (filter === 'purchase') {
+          if (t.type === 'purchase' || t.type === 'transfer_sent') transactions.push(t);
+      } else if (filter === 'topup') {
+          if (t.type === 'topup' || t.type === 'voucher' || t.type === 'bonus' || t.type === 'transfer_received') transactions.push(t);
+      } else {
+          // 'all'
+          transactions.push(t);
+      }
+      
+      nextCursor = entry.key;
+      
+      // Limit page size to 10 after filtering
+      if(transactions.length >= 10) break;
+  }
+
+  if (transactions.length < 10) {
+      // If we didn't fill the page, we might have run out of items or just need to fetch more next time.
+      // For simple implementation, if we hit end of batch, nextCursor is valid. 
+      // If iterator done, nextCursor is null (handled by loop exit).
+      // To be safe for "End of list", we keep nextCursor from the loop.
+  }
+  
+  const encodedCursor = nextCursor ? btoa(JSON.stringify(nextCursor)) : null;
+  
+  return c.html(Layout("History", `
+    <div class="max-w-4xl mx-auto">
+        <h1 class="text-3xl font-bold text-white mb-6">Transaction History</h1>
+        ${HistoryTable(transactions, encodedCursor, filter)}
+        <div class="mt-4 text-center text-slate-500 text-sm"><a href="/" class="hover:text-blue-400">← Back to Shop</a></div>
+    </div>
+  `, user));
 });
 
 app.get("/login", (c) => c.html(Layout("Login", AuthForm("Login"))));
@@ -252,12 +277,7 @@ app.post("/register", async (c) => {
   const list = kv.list({ prefix: ["users"] }, { limit: 1 });
   const isFirst = (await list.next()).done;
   const initialBalance = config.bonusActive ? config.bonusAmount : 0;
-  
-  // Save createdAt for 30-day rule
-  await kv.set(["users", username as string], { 
-      username, password, balance: initialBalance, isAdmin: isFirst, hasClaimedBonus: config.bonusActive, createdAt: Date.now() 
-  } as User);
-  
+  await kv.set(["users", username as string], { username, password, balance: initialBalance, isAdmin: isFirst, hasClaimedBonus: config.bonusActive, createdAt: Date.now() } as User);
   if(initialBalance > 0) { await addHistory(username as string, "bonus", "Welcome Bonus", initialBalance, "Registration Gift"); }
   setCookie(c, "session_user", username as string);
   return c.redirect("/");
