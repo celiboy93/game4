@@ -11,19 +11,43 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
   <title>${title}</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
-    // --- Slider Logic ---
-    document.addEventListener("DOMContentLoaded", () => {
-        const sliderTrack = document.getElementById('sliderTrack');
-        if(sliderTrack) {
-            let index = 0;
-            const slides = sliderTrack.children.length;
-            setInterval(() => {
-                index = (index + 1) % slides;
-                sliderTrack.style.transform = \`translateX(-\${index * 100}%)\`;
-            }, 3000); // Change slide every 3 seconds
-        }
+    // --- Copy Logic ---
+    function copyToClipboard(text, btnId = 'copyBtn') {
+        navigator.clipboard.writeText(text).then(() => {
+            const btn = document.getElementById(btnId);
+            if(btn) {
+                const originalText = btn.innerText; 
+                btn.innerText = '✅ Copied!';
+                btn.classList.remove('bg-blue-600');
+                btn.classList.add('bg-green-600');
+                setTimeout(() => {
+                    btn.innerText = "Copy Code"; 
+                    btn.classList.remove('bg-green-600');
+                    btn.classList.add('bg-blue-600');
+                }, 2000);
+            }
+        });
+    }
 
-        // Lazy Load & Other scripts
+    // FIXED: Copy ONLY the raw code, not the formatted text
+    function copyPurchasedCode() {
+        const btn = document.getElementById('copyBtnModal');
+        // Get the raw code stored in the data attribute
+        const rawCode = btn.getAttribute('data-code');
+        copyToClipboard(rawCode, 'copyBtnModal');
+    }
+
+    function filterProducts() {
+        const input = document.getElementById('searchInput');
+        const filter = input.value.toLowerCase();
+        const nodes = document.querySelectorAll('.product-card');
+        nodes.forEach(node => {
+            const name = node.dataset.name.toLowerCase();
+            node.style.display = name.includes(filter) ? "flex" : "none";
+        });
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
         const apiProducts = document.querySelectorAll(".api-stock-loader");
         apiProducts.forEach(async (el) => {
             const id = el.dataset.id;
@@ -44,43 +68,16 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
                 }
             });
         });
+        document.querySelectorAll('form').forEach(form => {
+            form.addEventListener('submit', () => {
+                if(!form.closest('.modal-content')) { loader.classList.remove('hidden'); }
+            });
+        });
     });
     
     window.addEventListener('pageshow', (event) => {
         if (event.persisted) { document.getElementById('page-loader').classList.add('hidden'); }
     });
-
-    function copyToClipboard(text, btnId = 'copyBtn') {
-        navigator.clipboard.writeText(text).then(() => {
-            const btn = document.getElementById(btnId);
-            if(btn) {
-                const originalText = btn.innerText; 
-                btn.innerText = '✅ Copied!';
-                btn.classList.remove('bg-blue-600');
-                btn.classList.add('bg-green-600');
-                setTimeout(() => {
-                    btn.innerText = "Copy Code"; 
-                    btn.classList.remove('bg-green-600');
-                    btn.classList.add('bg-blue-600');
-                }, 2000);
-            }
-        });
-    }
-
-    function copyPurchasedCode() {
-        const codeText = document.getElementById('purchasedCode').innerText;
-        copyToClipboard(codeText, 'copyBtnModal');
-    }
-
-    function filterProducts() {
-        const input = document.getElementById('searchInput');
-        const filter = input.value.toLowerCase();
-        const nodes = document.querySelectorAll('.product-card');
-        nodes.forEach(node => {
-            const name = node.dataset.name.toLowerCase();
-            node.style.display = name.includes(filter) ? "flex" : "none";
-        });
-    }
 
     function disableProductCard(id) {
         const btn = document.getElementById("btn-" + id);
@@ -136,7 +133,13 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
             const data = await res.json();
             closeConfirmModal();
             if(data.success) {
+                // Set visible formatted text
                 document.getElementById('purchasedCode').innerText = data.code;
+                
+                // Store RAW CODE in the button for copying
+                const copyBtn = document.getElementById('copyBtnModal');
+                copyBtn.setAttribute('data-code', data.rawCode); // Store clean code here
+
                 document.getElementById('successModal').classList.remove('hidden');
                 document.querySelectorAll('.balance-display').forEach(el => el.innerText = data.newBalance.toLocaleString() + " Ks");
             } else { 
@@ -162,7 +165,6 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
     @keyframes marquee { 0% { transform: translate(0, 0); } 100% { transform: translate(-100%, 0); } }
     .loader { border: 4px solid rgba(59, 130, 246, 0.2); width: 45px; height: 45px; border-radius: 50%; border-left-color: #3b82f6; animation: spin 0.8s linear infinite; box-shadow: 0 0 15px rgba(59, 130, 246, 0.5); }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-    /* Slider CSS */
     #sliderTrack { transition: transform 0.5s ease-in-out; }
   </style>
 </head>
@@ -251,7 +253,6 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
 </html>
 `;
 
-// NEW SLIDER COMPONENT
 export const ImageSlider = (images: string[]) => `
 <div class="relative w-full h-48 md:h-64 overflow-hidden rounded-2xl shadow-2xl mb-6 border border-slate-700">
     <div id="sliderTrack" class="flex h-full w-full">
@@ -282,32 +283,8 @@ export const ProductCard = (p: Product) => {
   const manualStock = p.stock ? p.stock.length : 0;
   const stockDisplay = isManual ? `Stock: ${manualStock}` : `Stock: <span class="api-stock-loader animate-pulse" data-id="${p.id}">...</span>`;
   const isDisabled = isManual && manualStock === 0;
-  
-  const imageHtml = p.imageUrl 
-      ? `<img src="${p.imageUrl}" class="w-24 h-24 rounded-lg object-cover border border-slate-700 shadow-md" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-         <div class="w-24 h-24 rounded-lg bg-slate-800 items-center justify-center text-3xl hidden border border-slate-700 shadow-md">🎮</div>`
-      : `<div class="w-24 h-24 rounded-lg bg-slate-800 flex items-center justify-center text-3xl border border-slate-700 shadow-md">🎮</div>`;
-
-  return `
-  <div class="product-card glass rounded-xl overflow-hidden hover:shadow-2xl hover:shadow-blue-500/10 transition transform hover:-translate-y-1 duration-300 p-4" data-name="${p.name}">
-    <div class="flex gap-4">
-        <div class="flex-shrink-0">${imageHtml}</div>
-        <div class="flex-grow flex flex-col justify-between">
-            <div>
-                <div class="flex justify-between items-start">
-                    <h3 class="text-lg font-bold text-white leading-tight">${p.name}</h3>
-                    <span id="badge-${p.id}" class="text-[10px] px-2 py-1 rounded whitespace-nowrap ${!isDisabled ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">${stockDisplay}</span>
-                </div>
-                <p class="text-slate-400 text-xs mt-1 line-clamp-2">${p.description}</p>
-            </div>
-            <div class="mt-2">
-                <div class="text-xl font-bold text-blue-400 mb-2">${p.price.toLocaleString()} Ks</div>
-                <button id="btn-${p.id}" ${isDisabled ? 'disabled' : `onclick="confirmBuy('${p.id}', '${p.name}', '${p.price.toLocaleString()}')"`} class="w-full text-sm ${!isDisabled ? 'bg-blue-600 hover:bg-blue-500' : 'bg-slate-700 cursor-not-allowed'} text-white font-bold py-2 rounded-lg transition flex justify-center items-center gap-2">${isDisabled ? 'Out of Stock' : '⚡ Buy Now'}</button>
-            </div>
-        </div>
-    </div>
-  </div>
-  `;
+  const imageHtml = p.imageUrl ? `<img src="${p.imageUrl}" class="w-24 h-24 rounded-lg object-cover border border-slate-700 shadow-md" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="w-24 h-24 rounded-lg bg-slate-800 items-center justify-center text-3xl hidden border border-slate-700 shadow-md">🎮</div>` : `<div class="w-24 h-24 rounded-lg bg-slate-800 flex items-center justify-center text-3xl border border-slate-700 shadow-md">🎮</div>`;
+  return `<div class="product-card glass rounded-xl overflow-hidden hover:shadow-2xl hover:shadow-blue-500/10 transition transform hover:-translate-y-1 duration-300 p-4" data-name="${p.name}"><div class="flex gap-4"><div class="flex-shrink-0">${imageHtml}</div><div class="flex-grow flex flex-col justify-between"><div><div class="flex justify-between items-start"><h3 class="text-lg font-bold text-white leading-tight">${p.name}</h3><span id="badge-${p.id}" class="text-[10px] px-2 py-1 rounded whitespace-nowrap ${!isDisabled ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">${stockDisplay}</span></div><p class="text-slate-400 text-xs mt-1 line-clamp-2">${p.description}</p></div><div class="mt-2"><div class="text-xl font-bold text-blue-400 mb-2">${p.price.toLocaleString()} Ks</div><button id="btn-${p.id}" ${isDisabled ? 'disabled' : `onclick="confirmBuy('${p.id}', '${p.name}', '${p.price.toLocaleString()}')"`} class="w-full text-sm ${!isDisabled ? 'bg-blue-600 hover:bg-blue-500' : 'bg-slate-700 cursor-not-allowed'} text-white font-bold py-2 rounded-lg transition flex justify-center items-center gap-2">${isDisabled ? 'Out of Stock' : '⚡ Buy Now'}</button></div></div></div></div>`;
 };
 
 export const HistoryTable = (transactions: Transaction[], nextCursor: string | null, activeTab: string) => {
@@ -318,7 +295,9 @@ export const HistoryTable = (transactions: Transaction[], nextCursor: string | n
             let color = 'text-white'; let sign = ''; let bg = 'bg-slate-700';
             if(t.type === 'purchase' || t.type === 'transfer_sent') { color = 'text-red-400'; sign = '-'; bg = 'bg-red-500/20'; }
             else if (t.type === 'topup' || t.type === 'voucher' || t.type === 'bonus' || t.type === 'transfer_received' || t.type === 'refund') { color = 'text-green-400'; sign = '+'; bg = 'bg-green-500/20'; }
-            return `<tr class="border-b border-slate-700 hover:bg-slate-800/50 transition"><td class="p-4 text-sm text-slate-400">${new Date(t.date).toLocaleDateString()}</td><td class="p-4"><span class="px-2 py-1 rounded text-[10px] font-bold uppercase ${bg} ${color}">${t.type.replace('_', ' ')}</span></td><td class="p-4 font-medium text-white">${t.itemName} ${t.detail ? `<div class="text-xs text-slate-500 mt-1 font-mono truncate w-32 md:w-64">${t.detail.substring(0, 30)}...</div>` : ''}</td><td class="p-4 text-right ${color} font-bold">${sign}${t.amount.toLocaleString()} Ks</td></tr>`;
+            // FIX: Myanmar Timezone
+            const dateStr = new Date(t.date).toLocaleString("en-US", { timeZone: "Asia/Yangon" });
+            return `<tr class="border-b border-slate-700 hover:bg-slate-800/50 transition"><td class="p-4 text-sm text-slate-400">${dateStr}</td><td class="p-4"><span class="px-2 py-1 rounded text-[10px] font-bold uppercase ${bg} ${color}">${t.type.replace('_', ' ')}</span></td><td class="p-4 font-medium text-white">${t.itemName} ${t.detail ? `<div class="text-xs text-slate-500 mt-1 font-mono truncate w-32 md:w-64">${t.detail.substring(0, 30)}...</div>` : ''}</td><td class="p-4 text-right ${color} font-bold">${sign}${t.amount.toLocaleString()} Ks</td></tr>`;
         }).join(""); 
     }
     const tabs = [{ id: 'all', label: 'All' }, { id: 'purchase', label: 'Purchases' }, { id: 'topup', label: 'Top Up' }];
@@ -366,7 +345,6 @@ export const TransferPage = (user: User, error?: string) => Layout("Transfer", `
     </div>
 `, user);
 
-// Admin Components
 export const AdminUserTable = (usersHtml: string, nextCursor: string | null) => `
 <div class="glass rounded-xl overflow-hidden">
     <div class="overflow-x-auto"><table class="w-full text-left"><thead class="bg-slate-800 text-slate-300 uppercase text-xs"><tr><th class="p-3">User</th><th class="p-3 text-right">Balance</th><th class="p-3 text-center">Status</th></tr></thead><tbody class="divide-y divide-slate-700">${usersHtml}</tbody></table></div>
@@ -378,7 +356,7 @@ export const AdminUserTable = (usersHtml: string, nextCursor: string | null) => 
 export const AdminSalesTable = (sales: GlobalSale[], nextCursor: string | null) => {
     let rows = sales.map(s => `
         <tr class="border-b border-slate-700 hover:bg-slate-800/50 text-sm">
-            <td class="p-3 text-slate-400">${new Date(s.date).toLocaleString()}</td>
+            <td class="p-3 text-slate-400">${new Date(s.date).toLocaleString("en-US", { timeZone: "Asia/Yangon" })}</td>
             <td class="p-3 text-white font-bold">${s.username}</td>
             <td class="p-3">${s.itemName}</td>
             <td class="p-3 text-green-400">${s.amount}</td>
