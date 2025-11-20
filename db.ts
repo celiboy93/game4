@@ -53,13 +53,19 @@ export async function markKeyAsSold(key: string, username: string) {
   await kv.set(["sold_keys", key], { soldTo: username, date: Date.now() });
 }
 
-// New: Get Banner Text
-export async function getBanner() {
-    const res = await kv.get<string>(["config", "banner"]);
-    return res.value || "Welcome to GameStore! Top up via Admin.";
+// Config Helpers
+export async function getConfig() {
+    const banner = await kv.get<string>(["config", "banner"]);
+    const payment = await kv.get<string>(["config", "payment"]); // Payment Details text
+    const telegram = await kv.get<string>(["config", "telegram"]); // Telegram Username
+    
+    return {
+        banner: banner.value || "Welcome to GameStore!",
+        payment: payment.value || "Kpay: 09xxxxxx (Name)\nWave: 09xxxxxx (Name)",
+        telegram: telegram.value || "username" // e.g., celiboy93 without @
+    };
 }
 
-// New: Set Banner Text
-export async function setBanner(text: string) {
-    await kv.set(["config", "banner"], text);
+export async function setConfig(key: string, value: string) {
+    await kv.set(["config", key], value);
 }
