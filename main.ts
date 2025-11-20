@@ -5,16 +5,12 @@ import { Layout, AuthForm, ProductCard, HistoryTable } from "./ui.ts";
 
 const app = new Hono();
 
-// --- Helper: Count Available Stock for API ---
+// --- Helper Logic ---
 async function getApiAvailableStock(p: Product): Promise<number | string> {
     if (!p.apiUrl) return 0;
     try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3000); // 3s timeout to prevent page lag
-        
-        const res = await fetch(p.apiUrl, { signal: controller.signal });
-        clearTimeout(timeoutId);
-        
+        // No timeout needed here because it's async fetch by client
+        const res = await fetch(p.apiUrl);
         if (!res.ok) return "?";
         const text = await res.text();
         const json = JSON.parse(text);
@@ -22,23 +18,21 @@ async function getApiAvailableStock(p: Product): Promise<number | string> {
         
         let count = 0;
         for (const item of items) {
-            // Check logic matches the Buy logic
             const expDate = new Date(item.expiration_date);
             const now = new Date();
             now.setHours(0,0,0,0);
             
-            if (expDate < now) continue; // Expired
+            if (expDate < now) continue;
             if (item.android_id_1 && item.android_id_1.trim() !== "" && 
-                item.android_id_2 && item.android_id_2.trim() !== "") continue; // Full
+                item.android_id_2 && item.android_id_2.trim() !== "") continue;
             
-            // Vital: Check if already sold locally
             if (await isKeySold(item.key)) continue; 
 
             count++;
         }
         return count;
     } catch {
-        return "?"; // If API fails or timeout
+        return "?";
     }
 }
 
@@ -58,17 +52,10 @@ app.get("/", async (c) => {
   const iter = kv.list<Product>({ prefix: ["products"] });
   let productsHtml = "";
   
+  // Here we DO NOT fetch API stock. We just render the card.
+  // The Javascript in UI will call /check-stock later.
   for await (const entry of iter) {
-      const p = entry.value;
-      let stockCount: number | string = 0;
-      
-      if (p.type === 'manual') {
-          stockCount = p.stock.length;
-      } else {
-          // Fetch API stock count dynamically
-          stockCount = await getApiAvailableStock(p);
-      }
-      productsHtml += ProductCard(p, stockCount);
+      productsHtml += ProductCard(entry.value);
   }
 
   return c.html(Layout("Shop", `
@@ -77,6 +64,17 @@ app.get("/", async (c) => {
       ${productsHtml || '<p class="text-slate-500 col-span-full text-center">No products available yet.</p>'}
     </div>
   `, user));
+});
+
+// New: dedicated route for checking stock (called by JS)
+app.get("/check-stock", async (c) => {
+    const id = c.req.query("id");
+    if(!id) return c.text("?");
+    const p = await getProduct(id);
+    if(!p || p.type !== 'api') return c.text("?");
+    
+    const count = await getApiAvailableStock(p);
+    return c.text(String(count));
 });
 
 app.get("/history", async (c) => {
@@ -120,7 +118,6 @@ app.post("/register", async (c) => {
 });
 app.get("/logout", (c) => { deleteCookie(c, "session_user"); return c.redirect("/login"); });
 
-// 4. Buy Action (Updated with Sold Tracking)
 app.post("/buy", async (c) => {
   const user = await getSessionUser(c);
   if (!user) return c.redirect("/login");
@@ -133,7 +130,7 @@ app.post("/buy", async (c) => {
   }
 
   let finalDisplayCode = "";
-  let soldKeyIdentifier = null; // To mark as sold later
+  let soldKeyIdentifier = null; 
   
   if (product.type === "manual") {
     if (!product.stock.length) return c.html(Layout("Error", "Out of Stock", user));
@@ -147,7 +144,6 @@ app.post("/buy", async (c) => {
       .commit();
     if(!res.ok) return c.html(Layout("Error", "Transaction Failed. Try Again.", user));
   } else {
-    // API Logic
     try {
       const res = await fetch(product.apiUrl!);
       const text = await res.text();
@@ -163,10 +159,7 @@ app.post("/buy", async (c) => {
             now.setHours(0,0,0,0); 
             if (expDate < now) continue;
             if (item.android_id_1 && item.android_id_1.trim() !== "" && item.android_id_2 && item.android_id_2.trim() !== "") continue;
-            
-            // CHECK IF SOLD LOCALLY
             if (await isKeySold(item.key)) continue;
-
             validItem = item;
             break;
         }
@@ -177,29 +170,19 @@ app.post("/buy", async (c) => {
         
         finalDisplayCode = `Key: ${validItem.key}\nExpires: ${validItem.expiration_date}`;
         soldKeyIdentifier = validItem.key;
-
       } catch (e) {
-        // Fallback for non-JSON
         finalDisplayCode = text;
       }
-
-      // Atomic Transaction
       const resKv = await kv.atomic()
         .check(await kv.get(["users", user.username]))
         .set(["users", user.username], { ...user, balance: user.balance - product.price })
         .commit();
       if(!resKv.ok) throw new Error();
-
-      // Mark as Sold (If we identified a key)
-      if (soldKeyIdentifier) {
-          await markKeyAsSold(soldKeyIdentifier, user.username);
-      }
-
+      if (soldKeyIdentifier) await markKeyAsSold(soldKeyIdentifier, user.username);
     } catch {
       return c.html(Layout("Error", "API Error", user));
     }
   }
-
   await addHistory(user.username, "purchase", product.name, product.price, finalDisplayCode);
 
   return c.html(Layout("Success", `
@@ -222,14 +205,13 @@ app.post("/buy", async (c) => {
   `, { ...user, balance: user.balance - product.price }));
 });
 
-// 5. Admin Routes (Standard)
+// Admin Routes (Standard)
 app.get("/admin", async (c) => {
   const user = await getSessionUser(c);
   if (!user?.isAdmin) return c.redirect("/");
   const prodIter = kv.list<Product>({ prefix: ["products"] });
   let prodRows = "";
   for await (const { value: p } of prodIter) {
-    // Also show estimated stock in Admin
     const stockDisplay = p.type === 'manual' ? p.stock.length : 'Auto (API)';
     prodRows += `<tr class="border-b border-slate-700 hover:bg-slate-800"><td class="p-3">${p.name}</td><td class="p-3">${p.price.toLocaleString()} Ks</td><td class="p-3">${stockDisplay}</td><td class="p-3 flex gap-2"><a href="/admin/edit?id=${p.id}" class="text-yellow-400 hover:underline">Edit</a><form action="/admin/delete" method="POST" onsubmit="return confirm('Are you sure?')" style="margin:0;"><input type="hidden" name="id" value="${p.id}"><button class="text-red-400 hover:underline">Delete</button></form></td></tr>`;
   }
