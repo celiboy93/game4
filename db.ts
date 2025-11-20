@@ -8,6 +8,7 @@ export interface User {
   avatar?: string;
   isBlocked?: boolean;
   hasClaimedBonus?: boolean;
+  createdAt?: number; // New: Registration Date
 }
 
 export interface Product {
@@ -18,12 +19,12 @@ export interface Product {
   type: "manual" | "api";
   stock: string[]; 
   apiUrl?: string;
-  imageUrl?: string; // New: Product Image
+  imageUrl?: string;
 }
 
 export interface Transaction {
   id: string;
-  type: "purchase" | "topup" | "voucher" | "bonus";
+  type: "purchase" | "topup" | "voucher" | "bonus" | "transfer_sent" | "transfer_received"; // Added transfer types
   itemName: string;
   amount: number;
   detail: string;
@@ -51,7 +52,7 @@ export async function getProduct(id: string) {
   return res.value;
 }
 
-export async function addHistory(username: string, type: "purchase" | "topup" | "voucher" | "bonus", itemName: string, amount: number, detail: string) {
+export async function addHistory(username: string, type: Transaction['type'], itemName: string, amount: number, detail: string) {
   const id = crypto.randomUUID();
   const transaction: Transaction = {
     id, type, itemName, amount, detail, date: Date.now()
