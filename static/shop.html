@@ -15,17 +15,8 @@
         /* Modal Styles */
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 999; align-items: center; justify-content: center; }
         .modal-content { background: #222; padding: 25px; width: 90%; max-width: 400px; border-radius: 10px; max-height: 80vh; overflow-y: auto; text-align: center; }
-        .success-box { background: #1a1a1a; border: 2px solid #4CAF50; box-shadow: 0 0 20px rgba(76, 175, 80, 0.4); padding: 30px 20px; }
-        .success-icon { font-size: 50px; color: #ffd700; margin-bottom: 15px; } 
-        .code-display { background: #000; color: #0f0; padding: 10px; border-radius: 5px; margin: 15px 0; font-family: monospace; word-break: break-all; border: 1px dashed #4CAF50; }
-        .copy-btn { background: #2196F3; color: white; border: none; padding: 10px 0; width: 100%; margin-top: 10px; border-radius: 5px; cursor: pointer; font-weight: bold; }
-        .close-btn { background: #555; color: white; border: none; padding: 10px 0; width: 100%; margin-top: 10px; border-radius: 5px; cursor: pointer; }
-        
-        /* History Table Styles */
-        .history-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        .history-table th, .history-table td { border: 1px solid #333; padding: 8px; text-align: left; font-size: 12px; }
-        .history-table th { background: #444; color: #ffd700; }
-        .history-code { font-family: monospace; color: #0f0; }
+        .result-code { background: #000; color: #0f0; padding: 10px; border-radius: 5px; margin: 15px 0; font-family: monospace; word-break: break-all; }
+        .delete-btn { background: #d32f2f; color: white; }
 
         /* Admin Icon in Header */
         #adminIcon { font-size: 20px; cursor: pointer; color: #ff6f00; margin-right: 10px; display: none; }
@@ -54,6 +45,15 @@
         
         <div id="adminArea" style="display: none;">
             <h2 style="color:red;">ADMIN TOOLS</h2>
+            
+            <div class="section">
+                <h3 style="color:#e91e63; margin-top:0;">API URL SETUP</h3>
+                <form id="apiUrlForm">
+                    <input type="url" id="apiUrlInput" class="inp-field" placeholder="https://your-raw-key-api.com/keys.json" required>
+                    <button type="submit" style="background: #e91e63;">SAVE API URL</button>
+                </form>
+            </div>
+            
             <div class="section" style="border-color: #0f0;">
                 <h3 style="color:#0f0; margin-top:0;">TOP UP USER</h3>
                 <form id="topupForm">
@@ -63,17 +63,18 @@
                 </form>
             </div>
             <div class="section">
-                <h3 style="color:red; margin-top:0;">ADD NEW STOCK</h3>
+                <h3 style="color:red; margin-top:0;">ADD NEW STOCK / TEMPLATE</h3>
                 <form id="addStockForm">
                     <input type="text" id="stockName" class="inp-field" placeholder="Item Name (e.g. API Key)" required>
                     <input type="number" id="stockPrice" class="inp-field" placeholder="Price (e.g. 4000)" required>
                     <input type="url" id="imageUrl" class="inp-field" placeholder="Image URL (e.g. https://link.com/logo.png)">
-                    <select id="stockCategory" class="inp-field">
-                        <option value="key">Key</option>
-                        <option value="code">Code</option>
+                    
+                    <select id="stockSource" class="inp-field">
+                        <option value="internal">Internal (Codes stored here)</option>
+                        <option value="external">External (API managed)</option>
                     </select>
-                    <textarea id="stockCodes" rows="4" class="inp-field" placeholder="Codes (one per line)" required></textarea>
-                    <button type="submit" class="action-btn" style="background: #2196F3;">ADD STOCK</button>
+                    <textarea id="stockCodes" rows="4" class="inp-field" placeholder="Codes (one per line). Leave empty if External Source." required></textarea>
+                    <button type="submit" class="action-btn" style="background: #2196F3;">ADD PRODUCT</button>
                 </form>
             </div>
         </div>
@@ -93,13 +94,7 @@
     </div>
 
     <div id="successModal" class="modal">
-        <div class="modal-content">
-            <h2 style="color: #0f0;">SUCCESS!</h2>
-            <p>Your new code is:</p>
-            <div id="purchasedCodeDisplay" class="result-code"></div>
-            <button class="copy-btn" onclick="copyCode()">COPY CODE</button>
-            <button class="close-btn" onclick="closeModal('successModal')">CLOSE</button>
-        </div>
+        <div class="modal-content"><h2 style="color: #0f0;">SUCCESS!</h2><p>Your new code is:</p><div id="purchasedCodeDisplay" class="result-code"></div><button class="copy-btn" onclick="copyCode()">COPY CODE</button><button class="close-btn" onclick="closeModal('successModal')">CLOSE</button></div>
     </div>
     <div id="historyModal" class="modal">
         <div class="modal-content"><h2 style="color: #ffd700; margin-top: 0;">MY ORDERS</h2><div id="historyList">Loading...</div><button class="close-btn" onclick="closeModal('historyModal')">CLOSE</button></div>
@@ -144,10 +139,9 @@
             items.forEach(item => {
                 select.innerHTML += `<option value="${item.name}">${item.name} (${item.price})</option>`;
                 
-                // Final Image Logic (Simplified)
                 const imageTag = item.imageUrl ? 
                     `<img src="${item.imageUrl}" onerror="this.style.display='none'" style="width: 25px; height: 25px; object-fit: cover; margin-right: 10px; border-radius: 5px;">` 
-                    : '<span style="margin-right: 10px;">🔴</span>';
+                    : `<span style="margin-right: 10px;">🔴</span>`;
 
                 itemHtml += `
                     <li style="display: flex; align-items: center; margin-bottom: 8px; font-weight: bold; color: ${item.stock > 0 ? '#0F0' : '#FF6347'};">
@@ -171,10 +165,12 @@
             await loadItemsAndUI();
         }
 
-        // --- Utility & Modal Functions (Fixing the Close button is needed) ---
-        function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+        // --- Utility & Modal Functions (Fixing the Close button) ---
+        function openModal(id) { 
+            document.getElementById(id).style.display = 'flex'; 
+        }
         function closeModal(id) { 
-            // FIX: Ensure this works
+            // This is the fix for the modal not closing
             document.getElementById(id).style.display = 'none';
         }
         function copyCode() { 
@@ -210,7 +206,7 @@
             listContainer.innerHTML = tableHtml;
         }
 
-        // --- Event Handlers ---
+        // --- Event Handlers (Hybrid Logic) ---
         
         document.getElementById('adminIcon').addEventListener('click', toggleAdminPanel);
 
@@ -238,18 +234,20 @@
             const name = document.getElementById('stockName').value;
             const price = document.getElementById('stockPrice').value;
             const imageUrl = document.getElementById('imageUrl').value;
+            const source = document.getElementById('stockSource').value;
             
             const data = {
                 category: document.getElementById('stockCategory').value,
                 name: name,
                 price: price + " MMK",
                 imageUrl: imageUrl, 
+                source: source,
                 stock: document.getElementById('stockCodes').value.split('\n').filter(s => s.trim() !== "")
             };
 
             const res = await fetch('/api/add-item', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
             if (res.ok) {
-                alert(`Stock for ${name} Added!`);
+                alert(`Stock Added! Source: ${source.toUpperCase()}`);
             } else {
                 alert("Failed to add stock.");
             }
@@ -270,6 +268,22 @@
             }
             e.target.reset();
             init();
+        });
+
+        document.getElementById('apiUrlForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const url = document.getElementById('apiUrlInput').value;
+            const res = await fetch('/api/admin/set-api-url', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ url: url })
+            });
+            if(res.ok) {
+                alert("API URL Saved!");
+                init(); 
+            } else {
+                alert("Failed to save API URL.");
+            }
         });
         
         document.getElementById('topupUser').value = 'admin'; 
