@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Key & Code Generator</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .section { background: #1e1e1e; padding: 20px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #333; }
+        .section h2 { color: #ffd700; border-bottom: 1px solid #444; padding-bottom: 10px; }
+        .action-btn { width: 100%; padding: 15px; margin-top: 15px; font-size: 18px; font-weight: bold; }
+        .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px; }
+        .inp-field, select { padding: 10px; margin: 5px 0; background: #333; border: 1px solid #555; color: white; border-radius: 5px; box-sizing: border-box; }
+        
+        /* Modal Styles */
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 999; align-items: center; justify-content: center; }
+        .modal-content { background: #222; padding: 20px; width: 90%; max-width: 400px; border-radius: 10px; max-height: 80vh; overflow-y: auto; }
+        .result-code { background: #000; color: #0f0; padding: 10px; border-radius: 5px; margin: 15px 0; font-family: monospace; word-break: break-all; }
+        .delete-btn { background: #d32f2f; color: white; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="logo">🔑 CODE GEN SHOP</div>
+        <div class="balance" id="userBalance">Loading...</div>
+    </header>
+
+    <div class="container" style="padding: 15px;">
+        <h2>GENERATE NEW CODE</h2>
+        <div class="section">
+            <p style="color:#aaa;">Select the type of code you need to generate. Price will be deducted from your wallet.</p>
+            <select id="codeType" class="inp-field">
+                <option value="key">API Key (4000 MMK)</option>
+                <option value="code">Premium Code (1000 MMK)</option>
+            </select>
+            <button id="generateBtn" class="action-btn" style="background: #4CAF50;">GENERATE CODE NOW</button>
+        </div>
+        
+        <div id="adminArea" style="display: none;">
+            <h2>ADMIN TOOLS</h2>
+            <div class="section">
+                <h3 style="color:red; margin-top:0;">ADD NEW STOCK</h3>
+                <input type="text" id="stockCode" class="inp-field" placeholder="Code (e.g. key-001)">
+                <input type="number" id="stockPrice" class="inp-field" placeholder="Price (e.g. 4000)">
+                <select id="stockCategory" class="inp-field">
+                    <option value="key">Key</option>
+                    <option value="code">Code</option>
+                </select>
+                <button id="addStockBtn" class="action-btn" style="background: #2196F3;">ADD STOCK</button>
+            </div>
+            
+            <div id="stockListDisplay"></div>
+        </div>
+
+        <div class="grid-3" style="margin-top: 20px;">
+            <button onclick="showHistory()" style="background: #2196F3;">📜 History</button>
+            <button onclick="location.href='/profile'" style="background: #673AB7;">⚙️ Profile</button>
+            <button onclick="location.href='/api/auth/logout'" style="background:#d32f2f;">Logout</button>
+        </div>
+
+    </div>
+
+    <div id="successModal" class="modal">
+        <div class="modal-content">
+            <h2 style="color: #0f0;">SUCCESS!</h2>
+            <p>Your new code is:</p>
+            <div id="purchasedCodeDisplay" class="result-code"></div>
+            <button class="copy-btn" onclick="copyCode()">COPY CODE</button>
+            <button class="close-btn" onclick="closeModal('successModal')">CLOSE</button>
+        </div>
+    </div>
+    <div id="historyModal" class="modal">
+        <div class="modal-content"><h2 style="color: #ffd700; margin-top: 0;">MY ORDERS</h2><div id="historyList">Loading...</div><button class="close-btn" onclick="closeModal('historyModal')">CLOSE</button></div>
+    </div>
+    
+    <script>
+        // JS LOGIC (TO BE IMPLEMENTED)
+
+        function showAdminTools(isAdmin) {
+            document.getElementById('adminArea').style.display = isAdmin ? 'block' : 'none';
+        }
+
+        async function init() {
+            const userRes = await fetch('/api/me');
+            if(!userRes.ok) { location.href = '/login'; return; }
+            const user = await userRes.json();
+            
+            document.getElementById('userBalance').innerHTML = `${user.username.toUpperCase()} | <span style="color:#0f0">${user.balance} MMK</span>`;
+            
+            showAdminTools(user.username === 'admin');
+        }
+
+        // --- Core Functions ---
+        document.getElementById('generateBtn').addEventListener('click', async () => {
+            const codeType = document.getElementById('codeType').value;
+            const res = await fetch('/api/buy', {
+                method: 'POST',
+                body: JSON.stringify({ itemName: codeType }) 
+            });
+            const result = await res.json();
+            
+            if (result.success) {
+                document.getElementById('purchasedCodeDisplay').textContent = result.code;
+                openModal('successModal');
+                init();
+            } else {
+                alert("Failed: " + (result.error || "Unknown Error."));
+            }
+        });
+        
+        document.getElementById('addStockBtn').addEventListener('click', async () => {
+            const code = document.getElementById('stockCode').value;
+            const price = document.getElementById('stockPrice').value;
+            const category = document.getElementById('stockCategory').value;
+            
+            if (!code || !price) { alert("Fill all fields."); return; }
+
+            const data = {
+                category: category,
+                name: category, // Use category as item name for simplicity
+                price: price + " MMK",
+                stock: [code] 
+            };
+            
+            const res = await fetch('/api/add-item', { method: 'POST', body: JSON.stringify(data) });
+            if (res.ok) {
+                alert("Stock Added! Refresh page to confirm.");
+            } else {
+                alert("Failed to add stock.");
+            }
+        });
+        
+        // --- Utility Functions (Omitted for brevity, but should be added for history/modals) ---
+        function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+        function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+        function copyCode() { /* ... clipboard logic ... */ }
+        async function showHistory() { /* ... history fetch logic ... */ }
+
+
+        init();
+    </script>
+</body>
+</html>
