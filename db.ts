@@ -9,7 +9,7 @@ export interface User {
   avatar?: string;
   isBlocked?: boolean;
   hasClaimedBonus?: boolean;
-  createdAt?: number; // For transfer rules (30 days)
+  createdAt?: number; // For transfer rules (30 days check)
 }
 
 // --- PRODUCT TYPES ---
@@ -23,7 +23,7 @@ export interface Product {
   apiUrl?: string; // For 'api'
   imageUrl?: string;
   originalPrice?: number;
-  // For 'shared'
+  // For 'shared' (Netflix style)
   sharedData?: string;      
   sharedCapacity?: number;  
   sharedSold?: number;      
@@ -211,4 +211,43 @@ export async function placeBet(username: string, number: string, amount: number,
     // Key structure: ["2d_bets", YYYY-MM-DD, USERNAME, ID]
     await kv.set(["2d_bets", today, username, id], bet);
     return bet;
+}
+
+export async function process2DWinnings(winningNumber: string, session: "Morning" | "Evening", multiplier: number) {
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Yangon" });
+    // Scan all bets for today
+    const iter = kv.list<TwoDBet>({ prefix: ["2d_bets", today] });
+    
+    let winCount = 0;
+
+    for await (const entry of iter) {
+        const bet = entry.value;
+        
+        // Only process pending bets for the correct session
+        if (bet.status === 'pending' && bet.session === session) {
+            const isWin = bet.number === winningNumber;
+            const newStatus = isWin ? 'win' : 'lose';
+            
+            // Prepare atomic update
+            let atomic = kv.atomic()
+                .set(entry.key, { ...bet, status: newStatus });
+
+            // If Win, add money
+            if (isWin) {
+                const user = await getUser(bet.username);
+                if (user) {
+                    const payout = bet.amount * multiplier;
+                    atomic = atomic.set(["users", bet.username], { ...user, balance: user.balance + payout });
+                }
+            }
+
+            const res = await atomic.commit();
+            if (res.ok && isWin) {
+                // Add history separately (KV atomic limitation workaround)
+                await addHistory(bet.username, "win_2d", `2D Win: ${bet.number}`, bet.amount * multiplier, `Rate: ${multiplier}x`);
+                winCount++;
+            }
+        }
+    }
+    return winCount;
 }
