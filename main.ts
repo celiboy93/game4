@@ -50,7 +50,7 @@ app.post("/register", async (c) => {
   if (existing) return c.html(Layout("Register", AuthForm("Register", "Username already taken")));
 
   const list = kv.list({ prefix: ["users"] }, { limit: 1 });
-  const isFirst = (await list.next()).done; // First user is admin
+  const isFirst = (await list.next()).done;
 
   await kv.set(["users", username as string], {
     username, password, balance: 0, isAdmin: isFirst
@@ -65,7 +65,7 @@ app.get("/logout", (c) => {
   return c.redirect("/login");
 });
 
-// 3. Buy Action
+// 3. Buy Action (Enhanced Logic)
 app.post("/buy", async (c) => {
   const user = await getSessionUser(c);
   if (!user) return c.redirect("/login");
@@ -73,15 +73,18 @@ app.post("/buy", async (c) => {
   const product = await getProduct(id as string);
 
   if (!product) return c.redirect("/");
+  
+  // Initial Balance Check
   if (user.balance < product.price) {
     return c.html(Layout("Error", `<div class="max-w-md mx-auto glass p-8 rounded-xl text-center"><h2 class="text-red-400 text-xl font-bold mb-4">Insufficient Balance</h2><a href="/" class="text-blue-400">Back</a></div>`, user));
   }
 
-  let code = "";
+  let finalDisplayCode = "";
   
   if (product.type === "manual") {
     if (!product.stock.length) return c.html(Layout("Error", "Out of Stock", user));
-    code = product.stock[0];
+    finalDisplayCode = product.stock[0];
+    
     const res = await kv.atomic()
       .check(await kv.get(["products", product.id]))
       .check(await kv.get(["users", user.username]))
@@ -89,18 +92,75 @@ app.post("/buy", async (c) => {
       .set(["users", user.username], { ...user, balance: user.balance - product.price })
       .commit();
     if(!res.ok) return c.html(Layout("Error", "Transaction Failed. Try Again.", user));
+
   } else {
-    // API Logic
+    // --- API Logic with Filtering ---
     try {
       const res = await fetch(product.apiUrl!);
-      code = await res.text();
+      const text = await res.text();
+      let json;
+      
+      try {
+        json = JSON.parse(text);
+        
+        // Support both single object and array of objects
+        // If array, find the first valid one
+        const items = Array.isArray(json) ? json : [json];
+        let validItem = null;
+
+        for (const item of items) {
+            // 1. Check Expiration
+            // Assuming date format YYYY-MM-DD
+            const expDate = new Date(item.expiration_date);
+            const now = new Date();
+            // Reset time to midnight for fair comparison
+            now.setHours(0,0,0,0); 
+
+            if (expDate < now) {
+                continue; // Expired, skip this item
+            }
+
+            // 2. Check Device IDs (Full logic)
+            // If both ID_1 AND ID_2 have values, it is full.
+            if (item.android_id_1 && item.android_id_1.trim() !== "" && 
+                item.android_id_2 && item.android_id_2.trim() !== "") {
+                continue; // Full, skip this item
+            }
+
+            // If passed checks
+            validItem = item;
+            break; // Found a good one, stop looking
+        }
+
+        if (!validItem) {
+            // No valid items found in API response
+            return c.html(Layout("Error", `
+                <div class="max-w-md mx-auto glass p-8 rounded-xl text-center">
+                    <h2 class="text-red-400 text-xl font-bold mb-4">Stock Unavailable</h2>
+                    <p class="text-slate-300">The key from the server is either expired or full.</p>
+                    <p class="text-slate-500 text-sm mt-2">Your balance was NOT deducted.</p>
+                    <a href="/" class="text-blue-400 mt-4 inline-block">Back</a>
+                </div>
+            `, user));
+        }
+
+        // 3. Format Output (Only Key and Date)
+        finalDisplayCode = `Key: ${validItem.key}\nExpires: ${validItem.expiration_date}`;
+
+      } catch (e) {
+        // Fallback if not JSON or parsing fails
+        finalDisplayCode = text;
+      }
+
+      // Deduct Balance only if valid
       const resKv = await kv.atomic()
         .check(await kv.get(["users", user.username]))
         .set(["users", user.username], { ...user, balance: user.balance - product.price })
         .commit();
       if(!resKv.ok) throw new Error();
+
     } catch {
-      return c.html(Layout("Error", "API Error", user));
+      return c.html(Layout("Error", "API Error: Link might be broken", user));
     }
   }
 
@@ -108,7 +168,7 @@ app.post("/buy", async (c) => {
     <div class="max-w-lg mx-auto glass p-8 rounded-xl text-center">
       <h2 class="text-green-400 text-2xl font-bold mb-4">🎉 Purchase Successful!</h2>
       <p class="text-slate-300 mb-2">Your Item:</p>
-      <textarea readonly class="w-full bg-black text-green-400 font-mono p-4 rounded-lg h-32 mb-6">${code}</textarea>
+      <textarea readonly class="w-full bg-black text-green-400 font-mono p-4 rounded-lg h-32 mb-6">${finalDisplayCode}</textarea>
       <a href="/" class="bg-blue-600 text-white px-6 py-2 rounded-lg">Return to Shop</a>
     </div>
   `, { ...user, balance: user.balance - product.price }));
@@ -119,7 +179,6 @@ app.get("/admin", async (c) => {
   const user = await getSessionUser(c);
   if (!user?.isAdmin) return c.redirect("/");
 
-  // Get Products
   const prodIter = kv.list<Product>({ prefix: ["products"] });
   let prodRows = "";
   for await (const { value: p } of prodIter) {
@@ -138,11 +197,10 @@ app.get("/admin", async (c) => {
       </tr>`;
   }
 
-  // Get Users (New Feature)
   const userIter = kv.list<User>({ prefix: ["users"] });
   let userListHtml = "";
   for await (const { value: u } of userIter) {
-      if (u.username !== user.username) { // Don't show admin himself
+      if (u.username !== user.username) {
           userListHtml += `
             <div class="flex justify-between items-center border-b border-slate-700 py-2 text-sm">
                 <span class="text-slate-300 select-all cursor-pointer" onclick="document.querySelector('input[name=username]').value = '${u.username}'">${u.username}</span>
@@ -153,7 +211,6 @@ app.get("/admin", async (c) => {
 
   return c.html(Layout("Admin", `
     <div class="grid lg:grid-cols-3 gap-8">
-      
       <div class="lg:col-span-1 space-y-6">
         <div class="glass p-6 rounded-xl">
           <h3 class="text-xl font-bold text-white mb-4">💰 User Top Up</h3>
@@ -165,10 +222,9 @@ app.get("/admin", async (c) => {
             </div>
           </form>
         </div>
-
         <div class="glass p-6 rounded-xl">
              <h3 class="text-lg font-bold text-white mb-2">👥 Registered Users</h3>
-             <p class="text-xs text-slate-500 mb-3">Click name to auto-fill topup</p>
+             <p class="text-xs text-slate-500 mb-3">Click name to auto-fill</p>
              <div class="max-h-64 overflow-y-auto pr-2">
                 ${userListHtml || '<p class="text-slate-500">No other users yet</p>'}
              </div>
@@ -205,19 +261,16 @@ app.get("/admin", async (c) => {
   `, user));
 });
 
-// Admin Actions
-
 app.post("/admin/topup", async (c) => {
   const user = await getSessionUser(c);
   if (!user?.isAdmin) return c.redirect("/");
   
   const body = await c.req.parseBody();
-  const targetUsername = (body.username as string).trim(); // Fixed: Trim spaces
+  const targetUsername = (body.username as string).trim();
   const amount = Number(body.amount);
 
   const targetUser = await getUser(targetUsername);
   
-  // Fixed: Better error handling
   if (!targetUser) {
     return c.html(Layout("Admin Error", `
       <div class="max-w-md mx-auto glass p-8 rounded-xl text-center">
@@ -258,7 +311,6 @@ app.post("/admin/delete", async (c) => {
   return c.redirect("/admin");
 });
 
-// Edit Page
 app.get("/admin/edit", async (c) => {
   const user = await getSessionUser(c);
   if (!user?.isAdmin) return c.redirect("/");
