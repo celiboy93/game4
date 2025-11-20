@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shop Admin</title>
+    <style>
+        body { background: #121212; color: white; font-family: sans-serif; padding: 20px; max-width: 800px; margin: auto; }
+        input, select, button, textarea { width: 100%; padding: 10px; margin: 5px 0; box-sizing: border-box; }
+        button { background: #ffd700; border: none; font-weight: bold; cursor: pointer; }
+        .box { background: #1e1e1e; padding: 15px; margin-bottom: 20px; border-radius: 8px; border: 1px solid #333; }
+        h2 { color: #ffd700; border-bottom: 1px solid #444; padding-bottom: 10px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
+        th, td { border: 1px solid #555; padding: 8px; text-align: left; vertical-align: top; }
+        th { background: #444; }
+    </style>
+</head>
+<body>
+    <h1>ADMIN DASHBOARD</h1>
+
+    <button onclick="location.href='/'" style="background: #4CAF50; margin-bottom: 20px;">← Back to Shop</button>
+
+    <div class="box">
+        <h2>USER MANAGEMENT (TOP UP)</h2>
+        <p style="color:red; font-weight:bold;">NOTE: Admin list is disabled for stability. Use exact username.</p>
+        <div style="display: flex; gap: 10px;">
+            <input type="text" id="topupUser" placeholder="Username (Required)">
+            <input type="number" id="topupAmount" placeholder="Amount (MMK)">
+            <button onclick="topup()">ADD MONEY</button>
+        </div>
+    </div>
+
+    <div class="box">
+        <h2>CREATE VOUCHER</h2>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <input type="text" id="vCode" placeholder="Code Name (e.g. LUCKY)">
+            <input type="number" id="vAmount" placeholder="Value (MMK)">
+            <input type="number" id="vLimit" placeholder="Usage Limit (e.g. 10)">
+            <button onclick="createVoucher()">CREATE VOUCHER</button>
+        </div>
+    </div>
+
+    <div class="box">
+        <h2>ADD NEW ITEM / TEMPLATE</h2>
+        <form id="addForm">
+            <select id="category">
+                <option value="ml">Mobile Legends</option>
+                <option value="pubg">PUBG</option>
+                <option value="netflix">Netflix</option>
+            </select>
+            <input type="text" id="name" placeholder="Item Name" required>
+            <input type="text" id="price" placeholder="Price (e.g. 3500)" required>
+            <input type="url" id="imageUrl" placeholder="Image URL (e.g. https://link.com/logo.png)">
+            <select id="stockSource">
+                <option value="internal">Internal (Codes stored here)</option>
+                <option value="external">External (API managed)</option>
+            </select>
+            <textarea id="stock" rows="3" placeholder="Codes (one per line)"></textarea>
+            <button type="submit">ADD ITEM</button>
+        </form>
+    </div>
+
+    <script>
+        // NOTE: This file does NOT contain the full JS logic.
+        // It relies on the logic in main.ts and shared functions.
+
+        async function topup() {
+            const u = document.getElementById('topupUser').value;
+            const a = document.getElementById('topupAmount').value;
+            if(!u || !a) return alert("Input missing");
+
+            const res = await fetch('/api/admin/topup', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ username: u, amount: a })
+            });
+            if (res.ok) {
+                alert("Topup Successful!");
+            } else {
+                const errorText = await res.text();
+                alert(`Topup Failed! Status: ${res.status}. Error: ${errorText}`);
+            }
+        }
+
+        async function createVoucher() {
+            const code = document.getElementById('vCode').value;
+            const amount = document.getElementById('vAmount').value;
+            const limit = document.getElementById('vLimit').value;
+            if(!code || !amount || !limit) return alert("Fill all fields");
+
+            const res = await fetch('/api/admin/create-voucher', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ code: code, amount: amount, limit: limit })
+            });
+            if(res.ok) {
+                alert(`Voucher [${code}] Created!`);
+            } else {
+                const errorText = await res.text();
+                alert(`Voucher Creation Failed! Status: ${res.status}. Msg: ${errorText}`);
+            }
+        }
+
+        document.getElementById('addForm').onsubmit = async (e) => {
+            e.preventDefault();
+            const source = document.getElementById('stockSource').value;
+            const codes = document.getElementById('stock').value.split('\n').filter(s => s.trim() !== "");
+
+            if (source === 'internal' && codes.length === 0) {
+                 alert("ERROR: Internal source requires stock codes.");
+                 return;
+            }
+            
+            const data = {
+                category: document.getElementById('category').value,
+                name: document.getElementById('name').value,
+                price: document.getElementById('price').value + " MMK",
+                imageUrl: document.getElementById('imageUrl').value,
+                source: source,
+                stock: codes
+            };
+
+            const response = await fetch('/api/add-item', { 
+                method: 'POST', 
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data) 
+            });
+
+            if (response.ok) {
+                alert("Item Added Successfully! (Check Shop Page)");
+            } else {
+                const errorText = await response.text();
+                alert(`SERVER ERROR! Status: ${response.status}. Msg: ${errorText}`);
+            }
+            e.target.reset();
+        };
+    </script>
+</body>
+</html>
