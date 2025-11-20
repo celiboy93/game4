@@ -12,34 +12,23 @@
         .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px; }
         .inp-field, select { width: 100%; padding: 10px; margin: 5px 0; background: #333; border: 1px solid #555; color: white; border-radius: 5px; box-sizing: border-box; }
         
-        /* Modal Styles */
+        /* Modal Styles (Required for history) */
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 999; align-items: center; justify-content: center; }
         .modal-content { background: #222; padding: 25px; width: 90%; max-width: 400px; border-radius: 10px; max-height: 80vh; overflow-y: auto; text-align: center; }
-        .result-code { background: #000; color: #0f0; padding: 10px; border-radius: 5px; margin: 15px 0; font-family: monospace; word-break: break-all; }
-        .delete-btn { background: #d32f2f; color: white; }
+        .success-box { background: #1a1a1a; border: 2px solid #4CAF50; box-shadow: 0 0 20px rgba(76, 175, 80, 0.4); padding: 30px 20px; }
+        .success-icon { font-size: 50px; color: #ffd700; margin-bottom: 15px; } 
+        .code-display { background: #000; color: #0f0; padding: 10px; border-radius: 5px; margin: 15px 0; font-family: monospace; word-break: break-all; border: 1px dashed #4CAF50; }
+        .copy-btn { background: #2196F3; color: white; border: none; padding: 10px 0; width: 100%; margin-top: 10px; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        .close-btn { background: #555; color: white; border: none; padding: 10px 0; width: 100%; margin-top: 10px; border-radius: 5px; cursor: pointer; }
+        
+        /* History Table Styles */
+        .history-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        .history-table th, .history-table td { border: 1px solid #333; padding: 8px; text-align: left; font-size: 12px; }
+        .history-table th { background: #444; color: #ffd700; }
+        .history-code { font-family: monospace; color: #0f0; }
 
         /* Admin Icon in Header */
         #adminIcon { font-size: 20px; cursor: pointer; color: #ff6f00; margin-right: 10px; display: none; }
-        
-        /* Custom Dropdown/Selector Styles */
-        #selectButton { background: #333; color: white; text-align: left; border: 1px solid #555; padding: 12px; border-radius: 5px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-        
-        .custom-item-row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 10px;
-            margin-bottom: 8px;
-            background: #333;
-            border-radius: 5px;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-        .custom-item-row:hover { background: #444; }
-        .item-detail { display: flex; align-items: center; }
-        .item-price { color: #ffd700; font-weight: bold; }
-        .item-image { width: 30px; height: 30px; object-fit: cover; margin-right: 10px; border-radius: 5px; }
-        .stock-label { font-size: 10px; color: #0f0; margin-left: 10px; }
     </style>
 </head>
 <body>
@@ -58,12 +47,10 @@
             <h2>GENERATE NEW CODE</h2>
             <p style="color:#aaa;">Select the type of code you need to generate. Price will be deducted from your wallet.</p>
             
-            <div id="selectButton" onclick="openModal('customSelectorModal')">
-                <span id="selectedItemText">Select Item</span>
-                <span>▼</span>
-                <input type="hidden" id="selectedItemName">
-            </div>
-
+            <select id="codeType" class="inp-field">
+                <option value="">Select Item</option>
+            </select>
+            
             <button id="generateBtn" class="action-btn" style="background: #4CAF50;">GENERATE CODE NOW</button>
         </div>
         
@@ -91,26 +78,22 @@
         <div class="modal-content"><h2 style="color: #ffd700; margin-top: 0;">MY ORDERS</h2><div id="historyList">Loading...</div><button class="close-btn" onclick="closeModal('historyModal')">CLOSE</button></div>
     </div>
     
-    <div id="customSelectorModal" class="modal">
-        <div class="modal-content" style="background:#1e1e1e;">
-            <h2 style="color:#ffd700;">SELECT ITEM</h2>
-            <div id="customSelectorList">Loading items...</div>
-            <button class="close-btn" onclick="closeModal('customSelectorModal')">CANCEL</button>
-        </div>
-    </div>
-
-    
     <script>
         
         let allItems = [];
 
-        function toggleAdminPanel() { /* ... */ } // Logic remains unchanged
-        function showAdminTools(isAdmin) { /* ... */ } // Logic remains unchanged
-
-        function selectItem(name, price) {
-            document.getElementById('selectedItemText').textContent = `${name} (${price})`;
-            document.getElementById('selectedItemName').value = name;
-            closeModal('customSelectorModal');
+        function toggleAdminPanel() {
+            const adminArea = document.getElementById('adminArea');
+            if (adminArea.style.display === 'none' || adminArea.style.display === '') {
+                adminArea.style.display = 'block';
+            } else {
+                adminArea.style.display = 'none';
+            }
+        }
+        
+        function showAdminTools(isAdmin) {
+            document.getElementById('adminArea').style.display = 'none';
+            document.getElementById('adminIcon').style.display = isAdmin ? 'block' : 'none';
         }
 
         async function loadItemsAndUI() {
@@ -118,9 +101,9 @@
             const items = await itemRes.json();
             allItems = items;
 
-            // 1. Populate Custom Selector Modal
-            const selectorList = document.getElementById('customSelectorList');
-            selectorList.innerHTML = '';
+            // 1. Populate simple SELECT dropdown
+            const select = document.getElementById('codeType');
+            select.innerHTML = '<option value="">Select Item</option>';
             
             // 2. Render Visible Item List
             const listDisplay = document.getElementById('itemListDisplay');
@@ -128,61 +111,78 @@
 
             if (items.length === 0) {
                 listDisplay.innerHTML = '<p style="color:red; font-weight:bold;">No items in stock. Add items via ADMIN TOOLS.</p>';
-                selectorList.innerHTML = '<p style="text-align:center;">No items available</p>';
+                select.innerHTML = '<option value="">No items available</option>';
                 return;
             }
-            
+
             let itemHtml = '<ul style="list-style: none; padding-left: 0;">';
             items.forEach(item => {
-                // Determine stock status
-                const stockStatus = item.stock > 0 ? `<span style="color:#0f0;">Stock: ${item.stock}</span>` : `<span style="color:red;">Out of Stock</span>`;
+                // Populate Dropdown
+                select.innerHTML += `<option value="${item.name}">${item.name} (${item.price})</option>`;
                 
-                // Image Tag Logic
-                const imageTag = item.imageUrl ? 
-                    `<img src="${item.imageUrl}" class="item-image" onerror="this.style.display='none';" alt="${item.name}">` 
-                    : `<span class="item-image" style="background:#555;">${item.category.toUpperCase()}</span>`;
-
-                // Add to Custom Selector Modal
-                const itemRow = document.createElement('div');
-                itemRow.className = 'custom-item-row';
-                itemRow.setAttribute('onclick', `selectItem('${item.name}', '${item.price}')`);
-                itemRow.innerHTML = `
-                    <div class="item-detail">
-                        ${imageTag}
-                        <span>${item.name}</span>
-                        <span class="stock-label">${stockStatus}</span>
-                    </div>
-                    <span class="item-price">${item.price}</span>
-                `;
-                selectorList.appendChild(itemRow);
-
-
-                // Add to Visible List
-                itemHtml += `
-                    <li style="display: flex; align-items: center; margin-bottom: 8px; font-weight: bold; color: ${item.stock > 0 ? '#0F0' : '#FF6347'};">
-                        ${imageTag}
-                        <span>${item.name} - Stock: ${item.stock}</span>
-                    </li>
-                `;
+                // Populate Visible List (Simplified text display for stability)
+                itemHtml += `<li style="color: ${item.stock > 0 ? '#0F0' : '#FF6347'}; padding: 5px;">${item.name} - Stock: ${item.stock}</li>`;
             });
             listDisplay.innerHTML = itemHtml + '</ul>';
-
-            // Set initial selected item to the first available item if no item is selected
-            if (allItems.length > 0) {
-                 selectItem(allItems[0].name, allItems[0].price);
-            }
         }
         
-        async function init() { /* ... */ }
-        function openModal(id) { /* ... */ }
-        function closeModal(id) { /* ... */ }
-        function copyCode() { /* ... */ }
-        async function showHistory() { /* ... */ }
+        async function init() {
+            const userRes = await fetch('/api/me');
+            if(!userRes.ok) { location.href = '/login'; return; }
+            const user = await userRes.json();
+            
+            document.getElementById('userBalance').innerHTML = `${user.username.toUpperCase()} | <span style="color:#0f0">${user.balance} MMK</span>`;
+            
+            showAdminTools(user.username === 'admin');
+            
+            await loadItemsAndUI();
+        }
+
+        // --- Utility & Modal Functions ---
+        function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+        function closeModal(id) { 
+            document.getElementById(id).style.display = 'none';
+        }
+        function copyCode() { 
+            const code = document.getElementById('purchasedCodeDisplay').textContent;
+            navigator.clipboard.writeText(code).then(() => {
+                alert('Code copied!');
+            });
+        }
         
-        // --- Core Buy Function (Updated to read hidden field) ---
+        async function showHistory() {
+            openModal('historyModal');
+            const listContainer = document.getElementById('historyList');
+            listContainer.innerHTML = 'Loading...';
+
+            const res = await fetch('/api/history');
+            const data = await res.json();
+
+            listContainer.innerHTML = '';
+            if(data.length === 0) { listContainer.innerHTML = '<p style="text-align:center;">No purchases yet.</p>'; return; }
+            
+            let tableHtml = '<table class="history-table"><thead><tr><th>Item</th><th>Code</th><th>Price</th></tr></thead><tbody>';
+            data.forEach(record => {
+                tableHtml += `
+                    <tr>
+                        <td>${record.itemName}</td>
+                        <td class="history-code">${record.code}</td>
+                        <td>${record.price}</td>
+                    </tr>
+                `;
+            });
+            tableHtml += '</tbody></table>';
+
+            listContainer.innerHTML = tableHtml;
+        }
+
+        // --- Event Handlers (Unchanged Logic, Simplified UI) ---
+        
+        document.getElementById('adminIcon').addEventListener('click', toggleAdminPanel);
+
         document.getElementById('generateBtn').addEventListener('click', async () => {
-            const codeType = document.getElementById('selectedItemName').value; // Read from hidden field
-            if (!codeType || codeType === 'No items available') { alert("Please select an item."); return; }
+            const codeType = document.getElementById('codeType').value; // Read from simple select
+            if (!codeType || codeType === 'No items available' || codeType === 'Select Item') { alert("Please select an item."); return; }
             
             const res = await fetch('/api/buy', {
                 method: 'POST',
@@ -199,8 +199,45 @@
             }
         });
         
-        // --- Admin Handlers (Omitted for brevity, but full code contains them) ---
+        document.getElementById('addStockForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const name = document.getElementById('stockName').value;
+            const price = document.getElementById('stockPrice').value;
+            const imageUrl = document.getElementById('imageUrl').value;
+            
+            const data = {
+                category: document.getElementById('stockCategory').value,
+                name: name,
+                price: price + " MMK",
+                imageUrl: imageUrl, 
+                stock: document.getElementById('stockCodes').value.split('\n').filter(s => s.trim() !== "")
+            };
 
+            const res = await fetch('/api/add-item', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
+            if (res.ok) {
+                alert(`Stock for ${name} Added!`);
+            } else {
+                alert("Failed to add stock.");
+            }
+            e.target.reset();
+            init();
+        });
+
+        document.getElementById('topupForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const u = document.getElementById('topupUser').value;
+            const a = document.getElementById('topupAmount').value;
+
+            const res = await fetch('/api/admin/topup', { method: 'POST', body: JSON.stringify({ username: u, amount: a }) });
+            if (res.ok) {
+                alert("Topup Success!");
+            } else {
+                alert("Topup Failed!");
+            }
+            e.target.reset();
+            init();
+        });
+        
         document.getElementById('topupUser').value = 'admin'; 
 
         init();
