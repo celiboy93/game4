@@ -11,10 +11,24 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
   <title>${title}</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
+    // --- ADMIN: Toggle Inputs Function ---
+    function toggleProductInputs() {
+        const type = document.getElementById('productType').value;
+        
+        // Hide all first
+        document.getElementById('input-manual').style.display = 'none';
+        document.getElementById('input-api').style.display = 'none';
+        document.getElementById('input-shared').style.display = 'none';
+
+        // Show selected
+        if (type === 'manual') document.getElementById('input-manual').style.display = 'block';
+        else if (type === 'api') document.getElementById('input-api').style.display = 'block';
+        else if (type === 'shared') document.getElementById('input-shared').style.display = 'block';
+    }
+
     // --- Active Tab Highlighter ---
     document.addEventListener("DOMContentLoaded", () => {
         const path = window.location.pathname;
-        // Highlight logic
         const navIds = {
             '/': 'nav-home',
             '/history': 'nav-history',
@@ -28,9 +42,50 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
             el.classList.remove('text-slate-500');
             el.classList.add('text-blue-500');
         }
+
+        // Slider & Stock Loaders
+        const sliderTrack = document.getElementById('sliderTrack');
+        if(sliderTrack && sliderTrack.children.length > 1) {
+            let index = 0;
+            const count = sliderTrack.children.length;
+            setInterval(() => {
+                index = (index + 1) % count;
+                sliderTrack.style.transform = \`translateX(-\${index * 100}%)\`;
+            }, 3500);
+        }
+        
+        const apiProducts = document.querySelectorAll(".api-stock-loader");
+        apiProducts.forEach(async (el) => {
+            const id = el.dataset.id;
+            try {
+                const res = await fetch("/check-stock?id=" + id);
+                const text = await res.text();
+                el.innerText = text;
+                if(text.includes("0") || text === "?") { disableProductCard(id); }
+            } catch { el.innerText = "?"; }
+        });
+
+        // Page Loader
+        const loader = document.getElementById('page-loader');
+        document.querySelectorAll('a').forEach(link => {
+            link.addEventListener('click', (e) => {
+                const href = link.getAttribute('href');
+                if (href && !href.startsWith('#') && !href.startsWith('javascript') && !e.ctrlKey && !e.metaKey && !href.startsWith('http')) {
+                    loader.classList.remove('hidden');
+                }
+            });
+        });
+        document.querySelectorAll('form').forEach(form => {
+            form.addEventListener('submit', () => {
+                if(!form.closest('.modal-content')) { loader.classList.remove('hidden'); }
+            });
+        });
+    });
+    
+    window.addEventListener('pageshow', (event) => {
+        if (event.persisted) { document.getElementById('page-loader').classList.add('hidden'); }
     });
 
-    // --- Other Scripts (Copy, Slider, Loader) ---
     function copyToClipboard(text, btnId = 'copyBtn') {
         navigator.clipboard.writeText(text).then(() => {
             const btn = document.getElementById(btnId);
@@ -63,51 +118,6 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
             node.style.display = name.includes(filter) ? "flex" : "none";
         });
     }
-
-    document.addEventListener("DOMContentLoaded", () => {
-        // Slider
-        const sliderTrack = document.getElementById('sliderTrack');
-        if(sliderTrack && sliderTrack.children.length > 1) {
-            let index = 0;
-            const count = sliderTrack.children.length;
-            setInterval(() => {
-                index = (index + 1) % count;
-                sliderTrack.style.transform = \`translateX(-\${index * 100}%)\`;
-            }, 3500);
-        }
-
-        // Lazy Stock
-        const apiProducts = document.querySelectorAll(".api-stock-loader");
-        apiProducts.forEach(async (el) => {
-            const id = el.dataset.id;
-            try {
-                const res = await fetch("/check-stock?id=" + id);
-                const text = await res.text();
-                el.innerText = text;
-                if(text.includes("0") || text === "?") { disableProductCard(id); }
-            } catch { el.innerText = "?"; }
-        });
-
-        // Page Loader
-        const loader = document.getElementById('page-loader');
-        document.querySelectorAll('a').forEach(link => {
-            link.addEventListener('click', (e) => {
-                const href = link.getAttribute('href');
-                if (href && !href.startsWith('#') && !href.startsWith('javascript') && !e.ctrlKey && !e.metaKey) {
-                    loader.classList.remove('hidden');
-                }
-            });
-        });
-        document.querySelectorAll('form').forEach(form => {
-            form.addEventListener('submit', () => {
-                if(!form.closest('.modal-content')) { loader.classList.remove('hidden'); }
-            });
-        });
-    });
-    
-    window.addEventListener('pageshow', (event) => {
-        if (event.persisted) { document.getElementById('page-loader').classList.add('hidden'); }
-    });
 
     function disableProductCard(id) {
         const btn = document.getElementById("btn-" + id);
@@ -180,17 +190,11 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
         document.querySelectorAll('.avatar-option').forEach(el => el.classList.remove('ring-4', 'ring-blue-500'));
         document.getElementById('av-' + avatar).classList.add('ring-4', 'ring-blue-500');
     }
-
-    function toggleProductInputs() {
-        const type = document.getElementById('productType').value;
-        document.getElementById('input-manual').style.display = type === 'manual' ? 'block' : 'none';
-        document.getElementById('input-api').style.display = type === 'api' ? 'block' : 'none';
-        document.getElementById('input-shared').style.display = type === 'shared' ? 'block' : 'none';
-    }
   </script>
   <style>
     body { font-family: sans-serif; background-color: #0f172a; color: #e2e8f0; }
     .glass { background: rgba(30, 41, 59, 0.85); backdrop-filter: blur(12px); border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+    .glass-nav { background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(10px); border-top: 1px solid rgba(255, 255, 255, 0.1); }
     .modal-backdrop { background-color: rgba(0, 0, 0, 0.8); backdrop-filter: blur(4px); }
     .code-box { background-image: radial-gradient(#334155 1px, transparent 1px); background-size: 10px 10px; }
     .marquee-container { overflow: hidden; white-space: nowrap; position: relative; }
@@ -201,25 +205,18 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     #sliderTrack { transition: transform 0.5s ease-in-out; will-change: transform; }
     .slide-item { min-width: 100%; flex-shrink: 0; }
-    
-    /* FIXED: Robust Bottom Nav Styles */
-    .bottom-nav-container {
-        background: #0f172a; /* Solid dark background */
-        border-top: 1px solid #334155;
-        box-shadow: 0 -4px 20px rgba(0,0,0,0.4);
-    }
+    .bottom-nav-container { background: #0f172a; border-top: 1px solid #334155; box-shadow: 0 -4px 20px rgba(0,0,0,0.4); }
   </style>
 </head>
 <body class="min-h-screen flex flex-col relative pb-24">
   
   <div id="page-loader" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm"><div class="loader"></div></div>
 
-  <nav class="glass sticky top-0 z-40">
+  <nav class="glass sticky top-0 z-40 border-b border-slate-700">
     <div class="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
       <a href="/" class="text-2xl font-bold text-blue-500 hover:text-blue-400 transition flex items-center gap-2">
         <span>🎮</span> <span class="hidden md:inline">GameStore</span>
       </a>
-      
       <div class="flex gap-3 items-center">
         ${user ? `
           <div class="flex items-center gap-3">
@@ -312,14 +309,16 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
         </div>
     </div>
   </div>
+
+  <footer class="text-center text-slate-600 py-6 text-sm">
+    &copy; 2025 Digital Shop System
+  </footer>
 </body>
 </html>
 `;
 
-// ... (Keep the rest of your UI components here: ImageSlider, AuthForm, MaintenancePage, ProductCard, HistoryTable, ProfilePage, TransferPage, AdminUserTable, AdminSalesTable)
-// Ensure you copy the REST of the file from the previous correct versions or I can paste the full file if needed.
-// For brevity, I am providing the Critical Layout Update. 
-// PLEASE MAKE SURE to include the other components below Layout in your file.
+// (ImageSlider, AuthForm, MaintenancePage, ProductCard, HistoryTable, ProfilePage, TransferPage, AdminUserTable, AdminSalesTable)
+// All other components remain the same, but ProductCard is logic heavy, so ensuring it's included in `ui.ts` context.
 
 export const ImageSlider = (images: string[]) => `
 <div class="relative w-full h-48 md:h-64 overflow-hidden rounded-2xl shadow-2xl mb-6 border border-slate-700">
@@ -347,40 +346,30 @@ export const AuthForm = (type: "Login" | "Register", error?: string) => `
 export const MaintenancePage = () => `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Maintenance</title><script src="https://cdn.tailwindcss.com"></script><style>body { font-family: sans-serif; background-color: #0f172a; color: #e2e8f0; }</style></head><body class="h-screen flex flex-col items-center justify-center p-4 text-center"><div class="bg-slate-800 p-8 rounded-2xl border border-slate-700 shadow-2xl max-w-md w-full"><div class="text-6xl mb-4">🚧</div><h1 class="text-3xl font-bold text-white mb-2">Under Maintenance</h1><p class="text-slate-400 mb-6">We are currently updating our server. Please check back later.</p><a href="/login" class="text-sm text-slate-600 hover:text-slate-400">Admin Login</a></div></body></html>`;
 
 export const ProductCard = (p: Product) => {
-  const isManual = p.type === 'manual';
-  const manualStock = p.stock ? p.stock.length : 0;
-  const stockDisplay = isManual ? `Stock: ${manualStock}` : `Stock: <span class="api-stock-loader animate-pulse" data-id="${p.id}">...</span>`;
-  const isDisabled = isManual && manualStock === 0;
-  
-  const imageHtml = p.imageUrl 
-      ? `<img src="${p.imageUrl}" class="w-24 h-24 rounded-lg object-cover border border-slate-700 shadow-md" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-         <div class="w-24 h-24 rounded-lg bg-slate-800 items-center justify-center text-3xl hidden border border-slate-700 shadow-md">🎮</div>`
-      : `<div class="w-24 h-24 rounded-lg bg-slate-800 flex items-center justify-center text-3xl border border-slate-700 shadow-md">🎮</div>`;
+  let stockDisplay = "Stock: 0";
+  let hasStock = false;
 
-  const priceDisplay = (p.originalPrice && p.originalPrice > p.price) 
-      ? `<span class="text-xs text-slate-500 line-through mr-1 font-medium">${p.originalPrice.toLocaleString()} Ks</span><span class="text-xl font-bold text-blue-400">${p.price.toLocaleString()} Ks</span>`
-      : `<div class="text-xl font-bold text-blue-400">${p.price.toLocaleString()} Ks</div>`;
+  if (p.type === 'manual') {
+      const count = p.stock ? p.stock.length : 0;
+      stockDisplay = `Stock: ${count}`;
+      hasStock = count > 0;
+  } else if (p.type === 'api') {
+      stockDisplay = `Stock: <span class="api-stock-loader animate-pulse" data-id="${p.id}">...</span>`;
+      hasStock = true; 
+  } else if (p.type === 'shared') {
+      // FIX: Ensure numeric calculation handles undefined/null
+      const capacity = Number(p.sharedCapacity || 0);
+      const sold = Number(p.sharedSold || 0);
+      const remaining = capacity - sold;
+      stockDisplay = `Limit: ${remaining}/${capacity}`;
+      hasStock = remaining > 0;
+  }
 
-  return `
-  <div class="product-card glass rounded-xl overflow-hidden hover:shadow-2xl hover:shadow-blue-500/10 transition transform hover:-translate-y-1 duration-300 p-4" data-name="${p.name}">
-    <div class="flex gap-4">
-        <div class="flex-shrink-0">${imageHtml}</div>
-        <div class="flex-grow flex flex-col justify-between">
-            <div>
-                <div class="flex justify-between items-start">
-                    <h3 class="text-lg font-bold text-white leading-tight">${p.name}</h3>
-                    <span id="badge-${p.id}" class="text-[10px] px-2 py-1 rounded whitespace-nowrap ${!isDisabled ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">${stockDisplay}</span>
-                </div>
-                <p class="text-slate-400 text-xs mt-1 line-clamp-2">${p.description}</p>
-            </div>
-            <div class="mt-2">
-                <div class="mb-2 flex items-baseline">${priceDisplay}</div>
-                <button id="btn-${p.id}" ${isDisabled ? 'disabled' : `onclick="confirmBuy('${p.id}', '${p.name}', '${p.price.toLocaleString()}')"`} class="w-full text-sm ${!isDisabled ? 'bg-blue-600 hover:bg-blue-500' : 'bg-slate-700 cursor-not-allowed'} text-white font-bold py-2 rounded-lg transition flex justify-center items-center gap-2">${isDisabled ? 'Out of Stock' : '⚡ Buy Now'}</button>
-            </div>
-        </div>
-    </div>
-  </div>
-  `;
+  const isDisabled = !hasStock && p.type !== 'api';
+  const imageHtml = p.imageUrl ? `<img src="${p.imageUrl}" class="w-24 h-24 rounded-lg object-cover border border-slate-700 shadow-md" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="w-24 h-24 rounded-lg bg-slate-800 items-center justify-center text-3xl hidden border border-slate-700 shadow-md">🎮</div>` : `<div class="w-24 h-24 rounded-lg bg-slate-800 flex items-center justify-center text-3xl border border-slate-700 shadow-md">🎮</div>`;
+  const priceDisplay = (p.originalPrice && p.originalPrice > p.price) ? `<span class="text-xs text-slate-500 line-through mr-1 font-medium">${p.originalPrice.toLocaleString()} Ks</span><span class="text-xl font-bold text-blue-400">${p.price.toLocaleString()} Ks</span>` : `<div class="text-xl font-bold text-blue-400">${p.price.toLocaleString()} Ks</div>`;
+
+  return `<div class="product-card glass rounded-xl overflow-hidden hover:shadow-2xl hover:shadow-blue-500/10 transition transform hover:-translate-y-1 duration-300 p-4" data-name="${p.name}"><div class="flex gap-4"><div class="flex-shrink-0">${imageHtml}</div><div class="flex-grow flex flex-col justify-between"><div><div class="flex justify-between items-start"><h3 class="text-lg font-bold text-white leading-tight">${p.name}</h3><span id="badge-${p.id}" class="text-[10px] px-2 py-1 rounded whitespace-nowrap ${hasStock ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">${stockDisplay}</span></div><p class="text-slate-400 text-xs mt-1 line-clamp-2">${p.description}</p></div><div class="mt-2"><div class="mb-2 flex items-baseline">${priceDisplay}</div><button id="btn-${p.id}" ${isDisabled ? 'disabled' : `onclick="confirmBuy('${p.id}', '${p.name}', '${p.price.toLocaleString()}')"`} class="w-full text-sm ${!isDisabled ? 'bg-blue-600 hover:bg-blue-500' : 'bg-slate-700 cursor-not-allowed'} text-white font-bold py-2 rounded-lg transition flex justify-center items-center gap-2">${isDisabled ? 'Out of Stock' : '⚡ Buy Now'}</button></div></div></div></div>`;
 };
 
 export const HistoryTable = (transactions: Transaction[], nextCursor: string | null, activeTab: string) => {
