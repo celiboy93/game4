@@ -1,15 +1,13 @@
 import { Hono } from "jsr:@hono/hono";
 import { getCookie, setCookie, deleteCookie } from "jsr:@hono/hono/cookie";
-import { kv, User, Product, Transaction, getUser, getProduct, addHistory, isKeySold, markKeyAsSold } from "./db.ts";
+import { kv, User, Product, Transaction, getUser, getProduct, addHistory, isKeySold, markKeyAsSold, getBanner, setBanner } from "./db.ts";
 import { Layout, AuthForm, ProductCard, HistoryTable } from "./ui.ts";
 
 const app = new Hono();
 
-// --- Helper Logic ---
 async function getApiAvailableStock(p: Product): Promise<number | string> {
     if (!p.apiUrl) return 0;
     try {
-        // No timeout needed here because it's async fetch by client
         const res = await fetch(p.apiUrl);
         if (!res.ok) return "?";
         const text = await res.text();
@@ -21,13 +19,10 @@ async function getApiAvailableStock(p: Product): Promise<number | string> {
             const expDate = new Date(item.expiration_date);
             const now = new Date();
             now.setHours(0,0,0,0);
-            
             if (expDate < now) continue;
             if (item.android_id_1 && item.android_id_1.trim() !== "" && 
                 item.android_id_2 && item.android_id_2.trim() !== "") continue;
-            
             if (await isKeySold(item.key)) continue; 
-
             count++;
         }
         return count;
@@ -44,35 +39,39 @@ async function getSessionUser(c: any) {
 
 // --- Routes ---
 
-// 1. Home / Shop
+// 1. Home / Shop (Includes Search Bar & Banner)
 app.get("/", async (c) => {
   const user = await getSessionUser(c);
   if (!user) return c.redirect("/login");
 
   const iter = kv.list<Product>({ prefix: ["products"] });
   let productsHtml = "";
-  
-  // Here we DO NOT fetch API stock. We just render the card.
-  // The Javascript in UI will call /check-stock later.
   for await (const entry of iter) {
       productsHtml += ProductCard(entry.value);
   }
 
+  const banner = await getBanner();
+
   return c.html(Layout("Shop", `
-    <h1 class="text-3xl font-bold text-white mb-6">Products</h1>
+    <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+        <h1 class="text-3xl font-bold text-white">Products</h1>
+        <div class="relative w-full md:w-64">
+            <input type="text" id="searchInput" onkeyup="filterProducts()" placeholder="Search products..." class="w-full bg-slate-800 border border-slate-700 text-white px-4 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none pl-10">
+            <div class="absolute left-3 top-2.5 text-slate-400">🔍</div>
+        </div>
+    </div>
+
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
       ${productsHtml || '<p class="text-slate-500 col-span-full text-center">No products available yet.</p>'}
     </div>
-  `, user));
+  `, user, banner));
 });
 
-// New: dedicated route for checking stock (called by JS)
 app.get("/check-stock", async (c) => {
     const id = c.req.query("id");
     if(!id) return c.text("?");
     const p = await getProduct(id);
     if(!p || p.type !== 'api') return c.text("?");
-    
     const count = await getApiAvailableStock(p);
     return c.text(String(count));
 });
@@ -205,7 +204,7 @@ app.post("/buy", async (c) => {
   `, { ...user, balance: user.balance - product.price }));
 });
 
-// Admin Routes (Standard)
+// Admin Routes
 app.get("/admin", async (c) => {
   const user = await getSessionUser(c);
   if (!user?.isAdmin) return c.redirect("/");
@@ -219,9 +218,19 @@ app.get("/admin", async (c) => {
   let userListHtml = "";
   for await (const { value: u } of userIter) { if (u.username !== user.username) { userListHtml += `<div class="flex justify-between items-center border-b border-slate-700 py-2 text-sm"><span class="text-slate-300 select-all cursor-pointer" onclick="document.querySelector('input[name=username]').value = '${u.username}'">${u.username}</span><span class="text-green-400">${u.balance.toLocaleString()} Ks</span></div>`; } }
 
+  const banner = await getBanner();
+
   return c.html(Layout("Admin", `
     <div class="grid lg:grid-cols-3 gap-8">
       <div class="lg:col-span-1 space-y-6">
+        <div class="glass p-6 rounded-xl border-l-4 border-yellow-500">
+            <h3 class="text-xl font-bold text-white mb-4">📢 Announcement</h3>
+            <form action="/admin/banner" method="POST">
+                <textarea name="text" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-20 mb-2">${banner}</textarea>
+                <button class="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-2 rounded font-bold w-full">Update Banner</button>
+            </form>
+        </div>
+
         <div class="glass p-6 rounded-xl"><h3 class="text-xl font-bold text-white mb-4">💰 User Top Up</h3><form action="/admin/topup" method="POST" class="space-y-3"><input name="username" placeholder="Username" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><div class="flex gap-2"><input name="amount" type="number" placeholder="Amount" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><button class="bg-blue-600 px-4 rounded text-white font-bold">Add</button></div></form></div>
         <div class="glass p-6 rounded-xl"><h3 class="text-lg font-bold text-white mb-2">👥 Registered Users</h3><div class="max-h-64 overflow-y-auto pr-2">${userListHtml || '<p class="text-slate-500">No other users yet</p>'}</div></div>
       </div>
@@ -231,6 +240,15 @@ app.get("/admin", async (c) => {
       </div>
     </div>
   `, user));
+});
+
+// New: Update Banner
+app.post("/admin/banner", async (c) => {
+    const user = await getSessionUser(c);
+    if (!user?.isAdmin) return c.redirect("/");
+    const body = await c.req.parseBody();
+    await setBanner(body.text as string);
+    return c.redirect("/admin");
 });
 
 app.post("/admin/topup", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const targetUsername = (body.username as string).trim(); const amount = Number(body.amount); const targetUser = await getUser(targetUsername); if (!targetUser) return c.html(Layout("Admin Error", "User Not Found", user)); await kv.set(["users", targetUsername], { ...targetUser, balance: targetUser.balance + amount }); await addHistory(targetUsername, "topup", "Admin Topup", amount, `Added by Admin`); return c.redirect("/admin"); });
