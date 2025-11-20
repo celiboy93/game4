@@ -81,6 +81,24 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
     }
     function closeConfirmModal() { document.getElementById('confirmModal').classList.add('hidden'); selectedProductId = null; }
     function closeSuccessModal() { document.getElementById('successModal').classList.add('hidden'); }
+    function closeErrorModal() { document.getElementById('errorModal').classList.add('hidden'); }
+
+    // NEW: Custom Error Modal Function
+    function showErrorModal(msg, isBalanceError = false) {
+        document.getElementById('errorMessage').innerText = msg;
+        const btn = document.getElementById('errorActionBtn');
+        
+        if(isBalanceError) {
+            btn.innerText = "💰 Top Up Now";
+            btn.onclick = () => window.location.href = '/deposit';
+            btn.className = "w-full bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded-xl transition shadow-lg";
+        } else {
+            btn.innerText = "Close";
+            btn.onclick = closeErrorModal;
+            btn.className = "w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 rounded-xl transition";
+        }
+        document.getElementById('errorModal').classList.remove('hidden');
+    }
 
     async function processPurchase() {
         if(!selectedProductId) return;
@@ -95,10 +113,18 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
             if(data.success) {
                 document.getElementById('purchasedCode').innerText = data.code;
                 document.getElementById('successModal').classList.remove('hidden');
-                // Update all balance instances
                 document.querySelectorAll('.balance-display').forEach(el => el.innerText = data.newBalance.toLocaleString() + " Ks");
-            } else { alert(data.message || "Purchase Failed"); }
-        } catch (e) { alert("Connection Error"); } finally { confirmBtn.innerText = originalText; confirmBtn.disabled = false; }
+            } else { 
+                // Updated: Use Custom Modal instead of alert
+                const isBalanceError = data.message === "Insufficient Balance";
+                showErrorModal(data.message || "Purchase Failed", isBalanceError);
+            }
+        } catch (e) { 
+            showErrorModal("Connection Error"); 
+        } finally { 
+            confirmBtn.innerText = originalText; 
+            confirmBtn.disabled = false; 
+        }
     }
 
     function selectAvatar(avatar) {
@@ -129,7 +155,6 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
                  <span class="balance-display text-green-400 font-bold">${user.balance.toLocaleString()} Ks</span>
                  <span class="bg-green-600 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">+</span>
               </a>
-              
               <a href="/profile" class="relative">
                 <div class="w-9 h-9 rounded-md bg-slate-700 flex items-center justify-center text-xl border border-slate-500 shadow-sm hover:ring-2 ring-blue-500 transition">
                     ${user.avatar || "😎"}
@@ -137,10 +162,7 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
               </a>
               ${user.isAdmin ? '<a href="/admin" class="hidden md:block text-yellow-400 hover:text-yellow-300 font-semibold text-sm">Admin</a>' : ''}
           </div>
-        ` : `
-          <a href="/login" class="text-slate-300 hover:text-white">Login</a>
-          <a href="/register" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition">Register</a>
-        `}
+        ` : ``}
       </div>
     </div>
   </nav>
@@ -181,6 +203,19 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
     </div>
   </div>
 
+  <div id="errorModal" class="hidden fixed inset-0 z-50 flex items-center justify-center modal-backdrop px-4">
+    <div class="bg-[#1e293b] border border-red-500/30 rounded-2xl p-0 max-w-sm w-full shadow-2xl overflow-hidden">
+        <div class="bg-red-600/20 p-6 text-center border-b border-red-500/20">
+            <div class="text-5xl mb-2">⚠️</div>
+            <h2 class="text-2xl font-bold text-red-400">Oops!</h2>
+        </div>
+        <div class="p-6 text-center">
+            <p id="errorMessage" class="text-slate-300 mb-6 text-lg">Something went wrong.</p>
+            <button id="errorActionBtn" class="w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 rounded-xl transition">Close</button>
+        </div>
+    </div>
+  </div>
+
   <footer class="text-center text-slate-600 py-6 text-sm">
     &copy; 2025 Digital Shop System
   </footer>
@@ -195,6 +230,7 @@ export const AuthForm = (type: "Login" | "Register", error?: string) => `
   <form method="POST" class="space-y-4">
     <div><label class="block text-sm font-medium text-slate-400 mb-1">Username</label><input type="text" name="username" required class="w-full bg-slate-800 border border-slate-600 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 outline-none text-white"></div>
     <div><label class="block text-sm font-medium text-slate-400 mb-1">Password</label><input type="password" name="password" required class="w-full bg-slate-800 border border-slate-600 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 outline-none text-white"></div>
+    ${type === 'Login' ? `<label class="flex items-center gap-2 text-slate-400 text-sm cursor-pointer"><input type="checkbox" name="remember" class="rounded bg-slate-800 border-slate-600 text-blue-600 focus:ring-blue-500">Remember me (15 Days)</label>` : ''}
     <button class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-lg transition shadow-lg shadow-blue-500/30">${type}</button>
   </form>
   <p class="mt-4 text-center text-slate-400 text-sm">${type === 'Login' ? 'Don\'t have an account? <a href="/register" class="text-blue-400">Register</a>' : 'Already have an account? <a href="/login" class="text-blue-400">Login</a>'}</p>
@@ -214,21 +250,19 @@ export const ProductCard = (p: Product) => {
 export const HistoryTable = (transactions: Transaction[], nextCursor: string | null) => {
     let rows = "";
     if (transactions.length === 0) { rows = `<tr><td colspan="4" class="p-4 text-center text-slate-500">No transaction history found.</td></tr>`; } 
-    else { rows = transactions.map(t => `<tr class="border-b border-slate-700 hover:bg-slate-800/50 transition"><td class="p-4 text-sm text-slate-400">${new Date(t.date).toLocaleString()}</td><td class="p-4"><span class="px-2 py-1 rounded text-xs font-bold ${t.type === 'purchase' ? 'bg-blue-500/20 text-blue-400' : t.type === 'voucher' ? 'bg-purple-500/20 text-purple-400' : 'bg-green-500/20 text-green-400'}">${t.type.toUpperCase()}</span></td><td class="p-4 font-medium text-white">${t.itemName} ${t.type === 'purchase' ? `<div class="text-xs text-slate-500 mt-1 font-mono truncate w-32 md:w-64">${t.detail.substring(0, 30)}...</div>` : ''}</td><td class="p-4 text-right ${t.type === 'purchase' ? 'text-red-400' : 'text-green-400'} font-bold">${t.type === 'purchase' ? '-' : '+'}${t.amount.toLocaleString()} Ks</td></tr>`).join(""); }
+    else { rows = transactions.map(t => `<tr class="border-b border-slate-700 hover:bg-slate-800/50 transition"><td class="p-4 text-sm text-slate-400">${new Date(t.date).toLocaleString()}</td><td class="p-4"><span class="px-2 py-1 rounded text-xs font-bold ${t.type === 'purchase' ? 'bg-blue-500/20 text-blue-400' : t.type === 'voucher' ? 'bg-purple-500/20 text-purple-400' : t.type === 'bonus' ? 'bg-pink-500/20 text-pink-400' : 'bg-green-500/20 text-green-400'}">${t.type.toUpperCase()}</span></td><td class="p-4 font-medium text-white">${t.itemName} ${t.type === 'purchase' ? `<div class="text-xs text-slate-500 mt-1 font-mono truncate w-32 md:w-64">${t.detail.substring(0, 30)}...</div>` : ''}</td><td class="p-4 text-right ${t.type === 'purchase' ? 'text-red-400' : 'text-green-400'} font-bold">${t.type === 'purchase' ? '-' : '+'}${t.amount.toLocaleString()} Ks</td></tr>`).join(""); }
     return `<div class="glass rounded-xl overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-left"><thead class="bg-slate-800 text-slate-300 uppercase text-xs"><tr><th class="p-4">Date</th><th class="p-4">Type</th><th class="p-4">Description</th><th class="p-4 text-right">Amount</th></tr></thead><tbody class="divide-y divide-slate-700">${rows}</tbody></table></div>${nextCursor ? `<div class="p-4 text-center border-t border-slate-700"><a href="/history?cursor=${nextCursor}" class="inline-block bg-slate-700 hover:bg-slate-600 text-white px-6 py-2 rounded transition">Load Next 10 Entries</a></div>` : ''}</div>`;
 };
 
-export const ProfilePage = (user: User, message?: {type: 'success'|'error', text: string}) => {
+export const ProfilePage = (user: User, bonusConfig: {active: boolean, amount: number}, message?: {type: 'success'|'error', text: string}) => {
     const avatarGrid = AVATARS.map(av => `
         <div id="av-${av}" onclick="selectAvatar('${av}')" class="avatar-option text-4xl p-3 bg-slate-800 rounded-xl cursor-pointer hover:bg-slate-700 transition border border-slate-600 flex justify-center items-center ${user.avatar === av ? 'ring-4 ring-blue-500' : ''}">
             ${av}
         </div>
     `).join("");
 
-    // Added 'w-full' and refined grid layout for mobile alignment
     return Layout("Profile", `
         <div class="max-w-4xl mx-auto flex flex-col lg:grid lg:grid-cols-2 gap-8 w-full">
-            
             <div class="space-y-8 w-full">
                 <div class="glass p-8 rounded-2xl text-center w-full">
                     <div class="text-6xl mb-4">${user.avatar || "😎"}</div>
@@ -240,37 +274,12 @@ export const ProfilePage = (user: User, message?: {type: 'success'|'error', text
                     </div>
                     ${user.isAdmin ? `<a href="/admin" class="mt-4 inline-block text-yellow-400 text-sm font-bold border border-yellow-500/30 px-4 py-1 rounded-full">Access Admin Panel</a>` : ''}
                 </div>
-
-                <div class="glass p-8 rounded-2xl border-t-4 border-purple-500 w-full">
-                    <h3 class="text-xl font-bold text-white mb-4 flex items-center gap-2">🎟️ Redeem Voucher</h3>
-                    <form action="/redeem" method="POST" class="flex gap-2">
-                        <input name="code" placeholder="Code" required class="flex-1 bg-slate-900 border border-slate-600 rounded-lg p-3 text-white outline-none uppercase min-w-0">
-                        <button class="bg-purple-600 hover:bg-purple-500 text-white font-bold px-4 rounded-lg transition">Claim</button>
-                    </form>
-                </div>
-
-                <div class="glass p-8 rounded-2xl w-full">
-                    <h3 class="text-xl font-bold text-white mb-4">🔒 Change Password</h3>
-                    <form action="/profile/password" method="POST" class="space-y-3">
-                        <input type="password" name="oldPassword" placeholder="Current Password" required class="w-full bg-slate-900 border border-slate-600 rounded-lg p-3 text-white">
-                        <input type="password" name="newPassword" placeholder="New Password" required class="w-full bg-slate-900 border border-slate-600 rounded-lg p-3 text-white">
-                        <button class="w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 rounded-lg transition">Update Password</button>
-                    </form>
-                </div>
+                ${bonusConfig.active && !user.hasClaimedBonus ? `<div class="glass p-6 rounded-xl border-l-4 border-pink-500 bg-pink-900/20 flex justify-between items-center"><div><h3 class="text-lg font-bold text-white">🎁 Welcome Bonus</h3><p class="text-pink-200 text-sm">Claim your ${bonusConfig.amount.toLocaleString()} Ks gift!</p></div><form action="/profile/claim-bonus" method="POST" style="margin:0"><button class="bg-pink-600 hover:bg-pink-500 text-white font-bold px-4 py-2 rounded-lg shadow-lg animate-pulse">Claim</button></form></div>` : ''}
+                <div class="glass p-8 rounded-2xl border-t-4 border-purple-500 w-full"><h3 class="text-xl font-bold text-white mb-4 flex items-center gap-2">🎟️ Redeem Voucher</h3><form action="/redeem" method="POST" class="flex gap-2"><input name="code" placeholder="Code" required class="flex-1 bg-slate-900 border border-slate-600 rounded-lg p-3 text-white outline-none uppercase min-w-0"><button class="bg-purple-600 hover:bg-purple-500 text-white font-bold px-4 rounded-lg transition">Claim</button></form></div>
+                <div class="glass p-8 rounded-2xl w-full"><h3 class="text-xl font-bold text-white mb-4">🔒 Change Password</h3><form action="/profile/password" method="POST" class="space-y-3"><input type="password" name="oldPassword" placeholder="Current Password" required class="w-full bg-slate-900 border border-slate-600 rounded-lg p-3 text-white"><input type="password" name="newPassword" placeholder="New Password" required class="w-full bg-slate-900 border border-slate-600 rounded-lg p-3 text-white"><button class="w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 rounded-lg transition">Update Password</button></form></div>
             </div>
-
-            <div class="glass p-8 rounded-2xl w-full h-fit">
-                <h3 class="text-xl font-bold text-white mb-6">Choose Avatar</h3>
-                <form action="/profile/avatar" method="POST">
-                    <input type="hidden" name="avatar" id="selectedAvatarInput" value="${user.avatar || '😎'}">
-                    <div class="grid grid-cols-4 gap-4 mb-6">
-                        ${avatarGrid}
-                    </div>
-                    <button class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition shadow-lg shadow-blue-500/20">Save Profile Picture</button>
-                </form>
-            </div>
+            <div class="glass p-8 rounded-2xl w-full h-fit"><h3 class="text-xl font-bold text-white mb-6">Choose Avatar</h3><form action="/profile/avatar" method="POST"><input type="hidden" name="avatar" id="selectedAvatarInput" value="${user.avatar || '😎'}"><div class="grid grid-cols-4 gap-4 mb-6">${avatarGrid}</div><button class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition shadow-lg shadow-blue-500/20">Save Profile Picture</button></form></div>
         </div>
-        
         ${message ? `<div class="fixed bottom-5 right-5 ${message.type === 'success' ? 'bg-green-600' : 'bg-red-600'} text-white px-6 py-3 rounded-xl shadow-2xl animate-bounce">${message.text}</div>` : ''}
     `, user);
 }
