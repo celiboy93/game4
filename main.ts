@@ -1,172 +1,62 @@
 import { Hono } from "jsr:@hono/hono";
 import { getCookie, setCookie, deleteCookie } from "jsr:@hono/hono/cookie";
+import { kv, User, Product, getUser, getProduct } from "./db.ts";
+import { Layout, AuthForm, ProductCard } from "./ui.ts";
 
 const app = new Hono();
-const kv = await Deno.openKv();
 
-// --- Types ---
-interface User {
-  username: string;
-  password: string; 
-  balance: number;
-  isAdmin: boolean;
-}
-
-interface Product {
-  id: string;
-  name: string;
-  description: string;
-  price: number;
-  type: "manual" | "api";
-  stock?: string[]; 
-  apiUrl?: string;  
-}
-
-// --- UI Layout (Using Pico.css for pro look) ---
-const Layout = (title: string, content: string, user?: User) => `
-<!DOCTYPE html>
-<html lang="en" data-theme="dark">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${title}</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
-  <style>
-    nav { margin-bottom: 2rem; border-bottom: 1px solid #333; padding-bottom: 1rem; }
-    .shop-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 20px; }
-    .card { background: #1e2631; padding: 20px; border-radius: 8px; border: 1px solid #333; }
-    .price { font-size: 1.25rem; font-weight: bold; color: #4caf50; }
-    .stock-tag { font-size: 0.8rem; background: #333; padding: 2px 8px; border-radius: 4px; }
-    .success-box { background: #1b5e20; padding: 20px; border-radius: 8px; color: white; text-align: center; }
-    .error-msg { color: #f4511e; font-weight: bold; }
-    textarea.code-display { background: #000; color: #0f0; font-family: monospace; }
-  </style>
-</head>
-<body>
-  <main class="container">
-    <nav>
-      <ul>
-        <li><strong>🛍️ Digital Store</strong></li>
-      </ul>
-      <ul>
-        ${user 
-          ? `<li><a href="/">Shop</a></li>
-             ${user.isAdmin ? '<li><a href="/admin">Admin Panel</a></li>' : ''}
-             <li>Balance: <mark>${user.balance.toLocaleString()} $</mark></li>
-             <li><a href="/logout" role="button" class="outline secondary">Logout</a></li>` 
-          : `<li><a href="/login">Login</a></li>
-             <li><a href="/register" role="button">Register</a></li>`}
-      </ul>
-    </nav>
-    ${content}
-  </main>
-</body>
-</html>
-`;
-
-// --- Middleware: Auth ---
-async function getUser(c: any) {
+// --- Middleware ---
+async function getSessionUser(c: any) {
   const sessionUser = getCookie(c, "session_user");
   if (!sessionUser) return null;
-  const user = await kv.get<User>(["users", sessionUser]);
-  return user.value;
+  return await getUser(sessionUser);
 }
 
 // --- Routes ---
 
-// 1. Shop Page
+// 1. Home / Shop
 app.get("/", async (c) => {
-  const user = await getUser(c);
+  const user = await getSessionUser(c);
   if (!user) return c.redirect("/login");
 
-  const productsIter = kv.list<Product>({ prefix: ["products"] });
+  const iter = kv.list<Product>({ prefix: ["products"] });
   let productsHtml = "";
-  
-  for await (const entry of productsIter) {
-    const p = entry.value;
-    const isStockAvailable = p.type === 'api' || (p.stock && p.stock.length > 0);
-    
-    productsHtml += `
-      <article class="card">
-        <header>
-            <strong>${p.name}</strong>
-            <br>
-            <span class="stock-tag">${p.type === 'api' ? 'Instant Delivery' : `${p.stock?.length} in Stock`}</span>
-        </header>
-        <p>${p.description}</p>
-        <footer>
-            <div class="grid">
-                <div class="price">$${p.price}</div>
-                <form action="/buy" method="POST" style="margin-bottom:0;">
-                    <input type="hidden" name="id" value="${p.id}">
-                    <button type="submit" ${isStockAvailable ? '' : 'disabled'} class="${isStockAvailable ? '' : 'secondary'}">
-                        ${isStockAvailable ? 'Buy Now' : 'Out of Stock'}
-                    </button>
-                </form>
-            </div>
-        </footer>
-      </article>
-    `;
-  }
+  for await (const entry of iter) productsHtml += ProductCard(entry.value);
 
-  return c.html(Layout("Shop", `<div class="shop-grid">${productsHtml}</div>`, user));
+  return c.html(Layout("Shop", `
+    <h1 class="text-3xl font-bold text-white mb-6">Products</h1>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+      ${productsHtml || '<p class="text-slate-500 col-span-full text-center">No products available yet.</p>'}
+    </div>
+  `, user));
 });
 
-// 2. Authentication
-app.get("/login", (c) => c.html(Layout("Login", `
-  <article style="max-width: 400px; margin: 0 auto;">
-    <h3>Login</h3>
-    <form method="POST" action="/login">
-      <label>Username <input type="text" name="username" required></label>
-      <label>Password <input type="password" name="password" required></label>
-      <button type="submit">Login</button>
-    </form>
-  </article>
-`)));
-
+// 2. Login / Register
+app.get("/login", (c) => c.html(Layout("Login", AuthForm("Login"))));
 app.post("/login", async (c) => {
-  const body = await c.req.parseBody();
-  const user = await kv.get<User>(["users", body.username as string]);
-  
-  if (user.value && user.value.password === body.password) {
-    setCookie(c, "session_user", user.value.username);
+  const { username, password } = await c.req.parseBody();
+  const user = await getUser(username as string);
+  if (user && user.password === password) {
+    setCookie(c, "session_user", user.username);
     return c.redirect("/");
   }
-  return c.html(Layout("Login", `<article><p class="error-msg">Invalid Credentials</p><a href="/login">Try Again</a></article>`));
+  return c.html(Layout("Login", AuthForm("Login", "Invalid username or password")));
 });
 
-app.get("/register", (c) => c.html(Layout("Register", `
-  <article style="max-width: 400px; margin: 0 auto;">
-    <h3>Register</h3>
-    <form method="POST" action="/register">
-      <label>Username <input type="text" name="username" required></label>
-      <label>Password <input type="password" name="password" required></label>
-      <button type="submit" class="contrast">Create Account</button>
-    </form>
-    <small>Note: The first user to register becomes the Admin.</small>
-  </article>
-`)));
-
+app.get("/register", (c) => c.html(Layout("Register", AuthForm("Register"))));
 app.post("/register", async (c) => {
-  const body = await c.req.parseBody();
-  const username = body.username as string;
-  
-  const existing = await kv.get(["users", username]);
-  if (existing.value) return c.html(Layout("Register", `<article><p class="error-msg">Username already taken</p><a href="/register">Back</a></article>`));
+  const { username, password } = await c.req.parseBody();
+  const existing = await getUser(username as string);
+  if (existing) return c.html(Layout("Register", AuthForm("Register", "Username already taken")));
 
-  // Check if first user
   const list = kv.list({ prefix: ["users"] }, { limit: 1 });
-  const isFirst = (await list.next()).done;
+  const isFirst = (await list.next()).done; // First user is admin
 
-  const newUser: User = {
-    username,
-    password: body.password as string,
-    balance: 0,
-    isAdmin: isFirst
-  };
-
-  await kv.set(["users", username], newUser);
-  setCookie(c, "session_user", username);
+  await kv.set(["users", username as string], {
+    username, password, balance: 0, isAdmin: isFirst
+  } as User);
+  
+  setCookie(c, "session_user", username as string);
   return c.redirect("/");
 });
 
@@ -175,183 +65,208 @@ app.get("/logout", (c) => {
   return c.redirect("/login");
 });
 
-// 3. Purchase Transaction
+// 3. Buy Action
 app.post("/buy", async (c) => {
-  const user = await getUser(c);
+  const user = await getSessionUser(c);
   if (!user) return c.redirect("/login");
+  const { id } = await c.req.parseBody();
+  const product = await getProduct(id as string);
 
-  const body = await c.req.parseBody();
-  const productId = body.id as string;
-  const productRes = await kv.get<Product>(["products", productId]);
-  const product = productRes.value;
+  if (!product) return c.redirect("/");
+  if (user.balance < product.price) {
+    return c.html(Layout("Error", `<div class="max-w-md mx-auto glass p-8 rounded-xl text-center"><h2 class="text-red-400 text-xl font-bold mb-4">Insufficient Balance</h2><a href="/" class="text-blue-400">Back</a></div>`, user));
+  }
 
-  if (!product) return c.html(Layout("Error", "<article>Product not found <a href='/'>Back</a></article>", user));
-  if (user.balance < product.price) return c.html(Layout("Error", "<article><p class='error-msg'>Insufficient Balance. Please contact Admin.</p><a href='/'>Back</a></article>", user));
-
-  let deliveredData = "";
-
-  // Transaction Logic
+  let code = "";
+  
   if (product.type === "manual") {
-    if (!product.stock || product.stock.length === 0) return c.html(Layout("Error", "<article>Out of Stock</article>", user));
-    deliveredData = product.stock[0];
-    
-    const newStock = product.stock.slice(1);
-    const newBalance = user.balance - product.price;
-    
+    if (!product.stock.length) return c.html(Layout("Error", "Out of Stock", user));
+    code = product.stock[0];
     const res = await kv.atomic()
-      .check(productRes)
+      .check(await kv.get(["products", product.id]))
       .check(await kv.get(["users", user.username]))
-      .set(["products", productId], { ...product, stock: newStock })
-      .set(["users", user.username], { ...user, balance: newBalance })
+      .set(["products", product.id], { ...product, stock: product.stock.slice(1) })
+      .set(["users", user.username], { ...user, balance: user.balance - product.price })
       .commit();
-
-    if (!res.ok) return c.html(Layout("Error", "<article>Transaction Failed (Concurrency Error). Try Again.</article>", user));
-  } 
-  else if (product.type === "api" && product.apiUrl) {
+    if(!res.ok) return c.html(Layout("Error", "Transaction Failed. Try Again.", user));
+  } else {
+    // API Logic
     try {
-        const apiRes = await fetch(product.apiUrl);
-        if(!apiRes.ok) throw new Error("API Error");
-        const text = await apiRes.text(); 
-        deliveredData = text;
-
-        const newBalance = user.balance - product.price;
-        const res = await kv.atomic()
-            .check(await kv.get(["users", user.username]))
-            .set(["users", user.username], { ...user, balance: newBalance })
-            .commit();
-        if (!res.ok) return c.html(Layout("Error", "<article>Transaction Failed</article>", user));
-    } catch (e) {
-        return c.html(Layout("Error", "<article>Service Temporarily Unavailable (API Error)</article>", user));
+      const res = await fetch(product.apiUrl!);
+      code = await res.text();
+      const resKv = await kv.atomic()
+        .check(await kv.get(["users", user.username]))
+        .set(["users", user.username], { ...user, balance: user.balance - product.price })
+        .commit();
+      if(!resKv.ok) throw new Error();
+    } catch {
+      return c.html(Layout("Error", "API Error", user));
     }
   }
 
   return c.html(Layout("Success", `
-    <div class="success-box">
-        <h2>Purchase Successful!</h2>
-        <p>Here is your item:</p>
-        <textarea class="code-display" rows="4" readonly>${deliveredData}</textarea>
-        <br><br>
-        <a href="/" role="button" class="outline">Back to Shop</a>
+    <div class="max-w-lg mx-auto glass p-8 rounded-xl text-center">
+      <h2 class="text-green-400 text-2xl font-bold mb-4">🎉 Purchase Successful!</h2>
+      <p class="text-slate-300 mb-2">Your Item:</p>
+      <textarea readonly class="w-full bg-black text-green-400 font-mono p-4 rounded-lg h-32 mb-6">${code}</textarea>
+      <a href="/" class="bg-blue-600 text-white px-6 py-2 rounded-lg">Return to Shop</a>
     </div>
   `, { ...user, balance: user.balance - product.price }));
 });
 
-// 4. Admin Panel
+// 4. Admin Dashboard
 app.get("/admin", async (c) => {
-    const user = await getUser(c);
-    if (!user || !user.isAdmin) return c.redirect("/");
+  const user = await getSessionUser(c);
+  if (!user?.isAdmin) return c.redirect("/");
 
-    const productsIter = kv.list<Product>({ prefix: ["products"] });
-    let productList = "";
-    for await (const entry of productsIter) {
-        productList += `
-        <tr>
-            <td>${entry.value.name}</td>
-            <td>${entry.value.type}</td>
-            <td>${entry.value.price}</td>
-            <td>${entry.value.type === 'manual' ? entry.value.stock?.length : 'Unlimited'}</td>
-            <td>
-                <form action="/admin/delete-product" method="POST" style="margin:0">
-                    <input type="hidden" name="id" value="${entry.value.id}">
-                    <button class="outline contrast" style="padding:5px 10px; font-size:0.8rem">Delete</button>
-                </form>
-            </td>
-        </tr>`;
-    }
+  const iter = kv.list<Product>({ prefix: ["products"] });
+  let rows = "";
+  for await (const { value: p } of iter) {
+    rows += `
+      <tr class="border-b border-slate-700 hover:bg-slate-800">
+        <td class="p-3">${p.name}</td>
+        <td class="p-3">${p.price.toLocaleString()} Ks</td>
+        <td class="p-3">${p.type === 'manual' ? p.stock.length : 'Auto'}</td>
+        <td class="p-3 flex gap-2">
+          <a href="/admin/edit?id=${p.id}" class="text-yellow-400 hover:underline">Edit</a>
+          <form action="/admin/delete" method="POST" onsubmit="return confirm('Are you sure?')" style="margin:0;">
+            <input type="hidden" name="id" value="${p.id}">
+            <button class="text-red-400 hover:underline">Delete</button>
+          </form>
+        </td>
+      </tr>`;
+  }
 
-    return c.html(Layout("Admin Panel", `
-      <h1>Admin Dashboard</h1>
-      
-      <div class="grid">
-        <article>
-            <header><strong>Top Up Balance</strong></header>
-            <form action="/admin/topup" method="POST">
-                <input type="text" name="username" placeholder="Username" required>
-                <input type="number" name="amount" placeholder="Amount" required>
-                <button type="submit">Add Funds</button>
-            </form>
-        </article>
-
-        <article>
-            <header><strong>Add New Product</strong></header>
-            <form action="/admin/add-product" method="POST">
-                <input type="text" name="name" placeholder="Product Name" required>
-                <input type="text" name="description" placeholder="Short Description">
-                <div class="grid">
-                    <input type="number" name="price" placeholder="Price" required>
-                    <select name="type">
-                        <option value="manual">Manual Stock</option>
-                        <option value="api">API Integration</option>
-                    </select>
-                </div>
-                <textarea name="data" placeholder="For Manual: Paste codes (one per line).&#10;For API: Paste the API URL." rows="4"></textarea>
-                <button type="submit" class="contrast">Create Product</button>
-            </form>
-        </article>
+  return c.html(Layout("Admin", `
+    <div class="grid lg:grid-cols-3 gap-8">
+      <div class="lg:col-span-1 glass p-6 rounded-xl h-fit">
+        <h3 class="text-xl font-bold text-white mb-4">➕ Add Product</h3>
+        <form action="/admin/add" method="POST" class="space-y-3">
+          <input name="name" placeholder="Product Name" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white">
+          <input name="price" type="number" placeholder="Price (Ks)" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white">
+          <input name="desc" placeholder="Description" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white">
+          <select name="type" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white">
+            <option value="manual">Manual Stock</option>
+            <option value="api">API Link</option>
+          </select>
+          <textarea name="data" placeholder="For Manual: Codes (one per line)&#10;For API: URL Link" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-24"></textarea>
+          <button class="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-2 rounded">Add Product</button>
+        </form>
       </div>
 
-      <article>
-        <header><strong>Product Inventory</strong></header>
-        <table role="grid">
-            <thead>
-                <tr>
-                    <th>Name</th>
-                    <th>Type</th>
-                    <th>Price</th>
-                    <th>Stock</th>
-                    <th>Action</th>
-                </tr>
-            </thead>
-            <tbody>${productList}</tbody>
-        </table>
-      </article>
-    `, user));
+      <div class="lg:col-span-2 space-y-8">
+        <div class="glass p-6 rounded-xl">
+          <h3 class="text-xl font-bold text-white mb-4">💰 User Top Up</h3>
+          <form action="/admin/topup" method="POST" class="flex gap-2">
+            <input name="username" placeholder="Username" required class="flex-1 bg-slate-800 border border-slate-600 rounded p-2 text-white">
+            <input name="amount" type="number" placeholder="Amount" required class="w-32 bg-slate-800 border border-slate-600 rounded p-2 text-white">
+            <button class="bg-blue-600 px-4 py-2 rounded text-white font-bold">Top Up</button>
+          </form>
+        </div>
+
+        <div class="glass p-6 rounded-xl overflow-x-auto">
+          <h3 class="text-xl font-bold text-white mb-4">📦 Inventory</h3>
+          <table class="w-full text-left text-slate-300 text-sm">
+            <thead class="bg-slate-700 text-white uppercase"><tr><th class="p-3">Name</th><th class="p-3">Price</th><th class="p-3">Stock</th><th class="p-3">Actions</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `, user));
+});
+
+// Admin Actions
+app.post("/admin/add", async (c) => {
+  const user = await getSessionUser(c);
+  if (!user?.isAdmin) return c.redirect("/");
+  const body = await c.req.parseBody();
+  
+  const p: Product = {
+    id: crypto.randomUUID(),
+    name: body.name as string,
+    description: body.desc as string,
+    price: Number(body.price),
+    type: body.type as any,
+    stock: body.type === 'manual' ? (body.data as string).split("\n").map(s=>s.trim()).filter(Boolean) : [],
+    apiUrl: body.type === 'api' ? (body.data as string).trim() : undefined
+  };
+  await kv.set(["products", p.id], p);
+  return c.redirect("/admin");
+});
+
+app.post("/admin/delete", async (c) => {
+  const user = await getSessionUser(c);
+  if (!user?.isAdmin) return c.redirect("/");
+  const { id } = await c.req.parseBody();
+  await kv.delete(["products", id as string]);
+  return c.redirect("/admin");
 });
 
 app.post("/admin/topup", async (c) => {
-    const user = await getUser(c);
-    if (!user || !user.isAdmin) return c.redirect("/");
-    const body = await c.req.parseBody();
-    
-    const targetUserRes = await kv.get<User>(["users", body.username as string]);
-    if (!targetUserRes.value) return c.html(Layout("Admin", "<article>User not found <a href='/admin'>Back</a></article>", user));
-    
-    const newBalance = targetUserRes.value.balance + Number(body.amount);
-    await kv.set(["users", body.username as string], { ...targetUserRes.value, balance: newBalance });
-    return c.redirect("/admin");
+  const user = await getSessionUser(c);
+  if (!user?.isAdmin) return c.redirect("/");
+  const { username, amount } = await c.req.parseBody();
+  const u = await getUser(username as string);
+  if (u) await kv.set(["users", username as string], { ...u, balance: u.balance + Number(amount) });
+  return c.redirect("/admin");
 });
 
-app.post("/admin/add-product", async (c) => {
-    const user = await getUser(c);
-    if (!user || !user.isAdmin) return c.redirect("/");
+// Edit Page
+app.get("/admin/edit", async (c) => {
+  const user = await getSessionUser(c);
+  if (!user?.isAdmin) return c.redirect("/");
+  const id = c.req.query("id");
+  const p = await getProduct(id!);
+  if (!p) return c.redirect("/admin");
 
+  return c.html(Layout("Edit Product", `
+    <div class="max-w-lg mx-auto glass p-8 rounded-xl">
+      <h2 class="text-2xl font-bold text-white mb-6">Edit Product</h2>
+      <form action="/admin/update" method="POST" class="space-y-4">
+        <input type="hidden" name="id" value="${p.id}">
+        <div>
+            <label class="text-slate-400 block mb-1">Name</label>
+            <input name="name" value="${p.name}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white">
+        </div>
+        <div>
+            <label class="text-slate-400 block mb-1">Price (Ks)</label>
+            <input name="price" type="number" value="${p.price}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white">
+        </div>
+        <div>
+            <label class="text-slate-400 block mb-1">Description</label>
+            <input name="desc" value="${p.description}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white">
+        </div>
+        <div>
+             <label class="text-slate-400 block mb-1">Data</label>
+             <textarea name="data" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-32">${p.type === 'manual' ? p.stock.join("\n") : p.apiUrl}</textarea>
+             <small class="text-slate-500">For Manual: One code per line. For API: The URL.</small>
+        </div>
+        <div class="flex gap-4 pt-4">
+            <button class="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 rounded">Update</button>
+            <a href="/admin" class="flex-1 bg-slate-700 text-center py-2 rounded text-white">Cancel</a>
+        </div>
+      </form>
+    </div>
+  `, user));
+});
+
+app.post("/admin/update", async (c) => {
+    const user = await getSessionUser(c);
+    if (!user?.isAdmin) return c.redirect("/");
     const body = await c.req.parseBody();
-    const id = crypto.randomUUID();
-    const type = body.type as "manual" | "api";
-    
-    const newProduct: Product = {
-        id,
-        name: body.name as string,
-        description: body.description as string || "",
-        price: Number(body.price),
-        type,
-    };
-
-    if (type === "manual") {
-        newProduct.stock = (body.data as string).split("\n").map(s => s.trim()).filter(s => s.length > 0);
-    } else {
-        newProduct.apiUrl = (body.data as string).trim();
+    const p = await getProduct(body.id as string);
+    if (p) {
+        const updated: Product = {
+            ...p,
+            name: body.name as string,
+            price: Number(body.price),
+            description: body.desc as string,
+            stock: p.type === 'manual' ? (body.data as string).split("\n").map(s=>s.trim()).filter(Boolean) : [],
+            apiUrl: p.type === 'api' ? (body.data as string).trim() : undefined
+        };
+        await kv.set(["products", p.id], updated);
     }
-
-    await kv.set(["products", id], newProduct);
-    return c.redirect("/admin");
-});
-
-app.post("/admin/delete-product", async (c) => {
-    const user = await getUser(c);
-    if (!user || !user.isAdmin) return c.redirect("/");
-    const body = await c.req.parseBody();
-    await kv.delete(["products", body.id as string]);
     return c.redirect("/admin");
 });
 
