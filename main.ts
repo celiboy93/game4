@@ -30,6 +30,26 @@ async function verifyPassword(password: string, storedHash: string, storedSalt: 
     return newHash === storedHash;
 }
 
+// --- STOCK FETCHING HELPER ---
+
+async function fetchExternalStock(apiUrl: string) {
+    try {
+        const response = await fetch(apiUrl);
+        if (!response.ok) return [];
+
+        const data = await response.json();
+        
+        const availableItems = Array.isArray(data) 
+            ? data.filter((item: any) => item.status === "available" || item.status === "active" || item.status === "Available" || item.status === "true")
+            : [];
+            
+        return availableItems;
+    } catch (e) {
+        console.error("External API Fetch Failed:", e);
+        return [];
+    }
+}
+
 // --- MAIN SERVER LOGIC ---
 
 Deno.serve(async (req) => {
@@ -38,21 +58,17 @@ Deno.serve(async (req) => {
   const sessionUser = cookies.user_session || null;
 
   // SECURITY & ADMIN CHECK
-  if (url.pathname === "/admin" || url.pathname.startsWith("/static/admin.html")) {
-    if (sessionUser !== ADMIN_USERNAME) return new Response("Access Denied: Admins Only", { status: 403 });
-  }
   if (url.pathname.startsWith("/api/admin/")) {
     if (sessionUser !== ADMIN_USERNAME) return new Response("Unauthorized", { status: 403 });
   }
 
   // ROUTING
   if (url.pathname === "/login") return serveFile(req, "./static/login.html");
-  if (!sessionUser && (url.pathname === "/" || url.pathname === "/admin" || url.pathname === "/profile")) {
+  if (!sessionUser && (url.pathname === "/" || url.pathname === "/profile")) {
     return new Response(null, { status: 302, headers: { Location: "/login" } });
   }
 
   if (url.pathname === "/") return serveFile(req, "./static/shop.html"); 
-  if (url.pathname === "/admin") return serveFile(req, "./static/admin.html");
   if (url.pathname === "/profile") return serveFile(req, "./static/profile.html");
   if (url.pathname.startsWith("/static/")) return serveFile(req, "." + url.pathname);
 
@@ -115,15 +131,34 @@ Deno.serve(async (req) => {
     return new Response("Password changed successfully");
   }
 
-  // --- SHOP & ADMIN API (ATOMIC WRITE FIXES) ---
+  // --- SHOP & ADMIN API (HYBRID LOGIC) ---
   
   if (url.pathname.startsWith("/api/items")) {
-    const entries = kv.list({ prefix: ["items"] });
+    const apiRes = await kv.get(["settings", "external_api_url"]);
+    const externalApiUrl = apiRes.value;
+
+    const itemEntries = kv.list({ prefix: ["items"] });
     const items = [];
-    for await (const entry of entries) {
-        const itemCopy = { ...entry.value };
-        itemCopy.stock = itemCopy.stock ? itemCopy.stock.length : 0; 
-        items.push(itemCopy);
+    let externalStockData: any[] | null = null; 
+
+    for await (const entry of itemEntries) {
+        const item = entry.value;
+        let stockCount = 0;
+
+        if (item.source === 'external' && externalApiUrl) {
+             if (!externalStockData) { externalStockData = await fetchExternalStock(externalApiUrl); }
+             stockCount = externalStockData.length;
+        } else if (item.source === 'internal') {
+             stockCount = item.stock ? item.stock.length : 0;
+        }
+
+        items.push({ 
+            name: item.name, 
+            price: item.price, 
+            stock: stockCount,
+            imageUrl: item.imageUrl,
+            source: item.source
+        });
     }
     return new Response(JSON.stringify(items), { headers: { "content-type": "application/json" } });
   }
@@ -135,25 +170,33 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify(users), { headers: { "content-type": "application/json" } });
   }
 
-  // FIX: ADD ITEM (ATOMIC WRITE)
+  if (req.method === "POST" && url.pathname.includes("/api/admin/set-api-url")) {
+      const body = await req.json();
+      await kv.set(["settings", "external_api_url"], body.url);
+      return new Response("API URL Saved.", { status: 200 });
+  }
+
   if (req.method === "POST" && url.pathname.includes("/api/add-item")) {
     const item = await req.json();
     const id = item.name.replace(/\s+/g, '_').toLowerCase();
     
-    const existing = await kv.get(["items", id]);
+    let itemDataToSave = {
+        name: item.name,
+        price: item.price,
+        imageUrl: item.imageUrl || null,
+        source: item.source, 
+        stock: item.source === 'internal' ? item.stock : [] 
+    };
 
     const res = await kv.atomic()
-      .check({ key: ["items", id], version: existing.version })
-      .set(["items", id], item)
+      .check({ key: ["items", id], version: null })
+      .set(["items", id], itemDataToSave)
       .commit();
       
-    if (!res.ok) {
-        return new Response("Database write failed due to conflict.", { status: 500 });
-    }
+    if (!res.ok) { return new Response("Database write failed due to conflict.", { status: 500 }); }
     return new Response("Item Added", { status: 200 });
   }
 
-  // FIX: TOP UP (ATOMIC WRITE)
   if (req.method === "POST" && url.pathname.includes("/api/admin/topup")) {
     const body = await req.json();
     const u = body.username.toLowerCase();
@@ -169,17 +212,8 @@ Deno.serve(async (req) => {
         .set(["users", u], { ...user, balance: user.balance + amount })
         .commit();
 
-    if (!res.ok) {
-        return new Response("Topup Failed: Concurrency conflict.", { status: 500 });
-    }
-    
+    if (!res.ok) { return new Response("Topup Failed: Concurrency conflict.", { status: 500 }); }
     return new Response("Topup Success", { status: 200 });
-  }
-
-  if (req.method === "POST" && url.pathname.includes("/api/admin/create-voucher")) {
-    const body = await req.json();
-    await kv.set(["vouchers", body.code], { amount: parseInt(body.amount), limit: parseInt(body.limit), used: 0 });
-    return new Response("Voucher Created");
   }
 
   if (req.method === "POST" && url.pathname.includes("/api/transfer")) {
@@ -199,7 +233,6 @@ Deno.serve(async (req) => {
     if (!receiverRes.value) return new Response("Receiver not found", { status: 404 });
     const receiver = receiverRes.value;
     
-    // TRANSACTION: Atomic Transfer
     const commit = await kv.atomic()
         .check(senderRes)
         .check(receiverRes)
@@ -207,9 +240,7 @@ Deno.serve(async (req) => {
         .set(["users", receiverName], { ...receiver, balance: receiver.balance + amount })
         .commit();
         
-    if (!commit.ok) {
-        return new Response("Transfer Failed: Concurrency/Balance Check Error.", { status: 500 });
-    }
+    if (!commit.ok) { return new Response("Transfer Failed: Concurrency/Balance Check Error.", { status: 500 }); }
 
     return new Response("Transfer Success", { status: 200 });
   }
@@ -225,7 +256,6 @@ Deno.serve(async (req) => {
     const voucher = voucherRes.value;
     if (voucher.used >= voucher.limit) return new Response("Voucher Fully Used", { status: 400 });
 
-    // ATOMIC REDEEM: Update User & Voucher usage simultaneously
     const userRes = await kv.get(["users", sessionUser]);
     const user = userRes.value;
     
@@ -236,9 +266,7 @@ Deno.serve(async (req) => {
         .set(["vouchers", code], { ...voucher, used: voucher.used + 1 })
         .commit();
 
-    if (!result.ok) {
-        return new Response("Redeem Failed: Concurrency Error.", { status: 500 });
-    }
+    if (!result.ok) { return new Response("Redeem Failed: Concurrency Error.", { status: 500 }); }
 
     return new Response(JSON.stringify({ amount: voucher.amount }), { headers: { "content-type": "application/json" } });
   }
@@ -253,7 +281,24 @@ Deno.serve(async (req) => {
     if (!itemRes.value) return new Response(JSON.stringify({ error: "Item not found" }), { status: 404 });
     let item = itemRes.value;
 
-    if (item.stock.length === 0) return new Response(JSON.stringify({ error: "Out of Stock!" }), { status: 400 });
+    let purchasedCode = null;
+    
+    // HYBRID STOCK DEDUCTION LOGIC
+    if (item.source === 'internal') {
+        if (item.stock.length === 0) return new Response(JSON.stringify({ error: "Out of Stock!" }), { status: 400 });
+        purchasedCode = item.stock[0];
+        item.stock = item.stock.slice(1);
+        await kv.set(["items", itemId], item); // Save internal stock change
+    } else {
+        const apiRes = await kv.get(["settings", "external_api_url"]);
+        const externalApiUrl = apiRes.value;
+        const availableKeys = await fetchExternalStock(externalApiUrl);
+        
+        if (availableKeys.length === 0) return new Response(JSON.stringify({ error: "External Stock Empty!" }), { status: 400 });
+
+        const randomIndex = Math.floor(Math.random() * availableKeys.length);
+        purchasedCode = availableKeys[randomIndex].key;
+    }
 
     const userRes = await kv.get(["users", sessionUser]);
     let user = userRes.value;
@@ -261,11 +306,8 @@ Deno.serve(async (req) => {
 
     if (user.balance < price) return new Response(JSON.stringify({ error: "Insufficient Balance" }), { status: 400 });
 
-    const purchasedCode = item.stock[0];
-    item.stock = item.stock.slice(1);
     user.balance -= price;
 
-    await kv.set(["items", itemId], item);
     await kv.set(["users", sessionUser], user);
 
     const record = {
@@ -278,7 +320,7 @@ Deno.serve(async (req) => {
 
     return new Response(JSON.stringify({ success: true, code: purchasedCode }), { headers: { "content-type": "application/json" } });
   }
-  
+
   if (url.pathname.includes("/api/history")) {
     if (!sessionUser) return new Response("Unauthorized", { status: 401 });
     const entries = kv.list({ prefix: ["history", sessionUser] });
