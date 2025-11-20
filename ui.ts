@@ -1,4 +1,4 @@
-import { User, Product } from "./db.ts";
+import { User, Product, Transaction } from "./db.ts";
 
 export const Layout = (title: string, content: string, user?: User) => `
 <!DOCTYPE html>
@@ -8,9 +8,26 @@ export const Layout = (title: string, content: string, user?: User) => `
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${title}</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    function copyToClipboard(text) {
+        navigator.clipboard.writeText(text).then(() => {
+            const btn = document.getElementById('copyBtn');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '✅ Copied!';
+            btn.classList.remove('bg-blue-600');
+            btn.classList.add('bg-green-600');
+            setTimeout(() => {
+                btn.innerHTML = originalText;
+                btn.classList.remove('bg-green-600');
+                btn.classList.add('bg-blue-600');
+            }, 2000);
+        });
+    }
+  </script>
   <style>
     body { font-family: sans-serif; background-color: #0f172a; color: #e2e8f0; }
     .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
+    .code-box { background-image: radial-gradient(#334155 1px, transparent 1px); background-size: 10px 10px; }
   </style>
 </head>
 <body class="min-h-screen flex flex-col">
@@ -20,8 +37,9 @@ export const Layout = (title: string, content: string, user?: User) => `
       <div class="flex gap-4 items-center">
         ${user ? `
           <div class="hidden md:block text-sm text-slate-400">Balance: <span class="text-green-400 font-bold text-lg">${user.balance.toLocaleString()} Ks</span></div>
+          <a href="/history" class="text-slate-300 hover:text-white font-medium">History</a>
           ${user.isAdmin ? '<a href="/admin" class="text-yellow-400 hover:text-yellow-300 font-semibold">Admin Panel</a>' : ''}
-          <a href="/logout" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm transition">Logout</a>
+          <a href="/logout" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm transition">Logout</a>
         ` : `
           <a href="/login" class="text-slate-300 hover:text-white">Login</a>
           <a href="/register" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition">Register</a>
@@ -87,4 +105,54 @@ export const ProductCard = (p: Product) => {
     </div>
   </div>
   `;
+};
+
+// New: History Table View
+export const HistoryTable = (transactions: Transaction[], nextCursor: string | null) => {
+    let rows = "";
+    if (transactions.length === 0) {
+        rows = `<tr><td colspan="4" class="p-4 text-center text-slate-500">No transaction history found.</td></tr>`;
+    } else {
+        rows = transactions.map(t => `
+            <tr class="border-b border-slate-700 hover:bg-slate-800/50 transition">
+                <td class="p-4 text-sm text-slate-400">${new Date(t.date).toLocaleString()}</td>
+                <td class="p-4">
+                    <span class="px-2 py-1 rounded text-xs font-bold ${t.type === 'purchase' ? 'bg-blue-500/20 text-blue-400' : 'bg-green-500/20 text-green-400'}">
+                        ${t.type.toUpperCase()}
+                    </span>
+                </td>
+                <td class="p-4 font-medium text-white">
+                    ${t.itemName}
+                    ${t.type === 'purchase' ? `<div class="text-xs text-slate-500 mt-1 font-mono truncate w-32 md:w-64">${t.detail.substring(0, 30)}...</div>` : ''}
+                </td>
+                <td class="p-4 text-right ${t.type === 'purchase' ? 'text-red-400' : 'text-green-400'} font-bold">
+                    ${t.type === 'purchase' ? '-' : '+'}${t.amount.toLocaleString()} Ks
+                </td>
+            </tr>
+        `).join("");
+    }
+
+    return `
+        <div class="glass rounded-xl overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left">
+                    <thead class="bg-slate-800 text-slate-300 uppercase text-xs">
+                        <tr>
+                            <th class="p-4">Date</th>
+                            <th class="p-4">Type</th>
+                            <th class="p-4">Description</th>
+                            <th class="p-4 text-right">Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-700">
+                        ${rows}
+                    </tbody>
+                </table>
+            </div>
+            ${nextCursor ? `
+            <div class="p-4 text-center border-t border-slate-700">
+                <a href="/history?cursor=${nextCursor}" class="inline-block bg-slate-700 hover:bg-slate-600 text-white px-6 py-2 rounded transition">Load Next 10 Entries</a>
+            </div>` : ''}
+        </div>
+    `;
 };
