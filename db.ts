@@ -24,12 +24,12 @@ export interface Product {
 
 export interface Transaction {
   id: string;
-  type: "purchase" | "topup" | "voucher" | "bonus" | "transfer_sent" | "transfer_received" | "refund"; // Added refund
+  type: "purchase" | "topup" | "voucher" | "bonus" | "transfer_sent" | "transfer_received" | "refund";
   itemName: string;
   amount: number;
   detail: string;
   date: number;
-  refunded?: boolean; // Track if this tx was refunded
+  refunded?: boolean;
 }
 
 export interface Voucher {
@@ -39,7 +39,6 @@ export interface Voucher {
     usedBy?: string;
 }
 
-// New: Global Sale Record for Admin
 export interface GlobalSale extends Transaction {
     username: string;
 }
@@ -58,17 +57,15 @@ export async function getProduct(id: string) {
   return res.value;
 }
 
-// Updated to return the Transaction object
 export async function addHistory(username: string, type: Transaction['type'], itemName: string, amount: number, detail: string) {
   const id = crypto.randomUUID();
   const transaction: Transaction = {
     id, type, itemName, amount, detail, date: Date.now()
   };
   await kv.set(["history", username, transaction.date, id], transaction);
-  return transaction;
+  return transaction; // Important for Global Sales
 }
 
-// New: Add to Global Sales List (For Admin)
 export async function addGlobalSale(username: string, t: Transaction) {
     await kv.set(["global_sales", t.date, t.id], { ...t, username });
 }
@@ -123,28 +120,23 @@ export async function markVoucherUsed(code: string, username: string) {
     }
 }
 
-// New: Refund Logic
 export async function processRefund(username: string, date: number, txId: string) {
     const user = await getUser(username);
     const saleRes = await kv.get<GlobalSale>(["global_sales", date, txId]);
     const userTxRes = await kv.get<Transaction>(["history", username, date, txId]);
 
     if (!user || !saleRes.value || !userTxRes.value) return false;
-    if (saleRes.value.refunded) return false; // Already refunded
+    if (saleRes.value.refunded) return false;
 
     const amount = saleRes.value.amount;
-    
-    // Update DB
     const res = await kv.atomic()
-        .set(["users", username], { ...user, balance: user.balance + amount }) // Refund Money
-        .set(["global_sales", date, txId], { ...saleRes.value, refunded: true }) // Mark Global
-        .set(["history", username, date, txId], { ...userTxRes.value, refunded: true }) // Mark User History
+        .set(["users", username], { ...user, balance: user.balance + amount })
+        .set(["global_sales", date, txId], { ...saleRes.value, refunded: true })
+        .set(["history", username, date, txId], { ...userTxRes.value, refunded: true })
         .commit();
     
     if(res.ok) {
-        // Add a "Refund Received" history entry
         await addHistory(username, "refund", `Refund: ${saleRes.value.itemName}`, amount, "Admin Refunded");
     }
-    
     return res.ok;
 }
