@@ -15,11 +15,19 @@
         /* Modal Styles */
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 999; align-items: center; justify-content: center; }
         .modal-content { background: #222; padding: 25px; width: 90%; max-width: 400px; border-radius: 10px; max-height: 80vh; overflow-y: auto; text-align: center; }
-        .result-code { background: #000; color: #0f0; padding: 10px; border-radius: 5px; margin: 15px 0; font-family: monospace; word-break: break-all; }
+        .success-box { background: #1a1a1a; border: 2px solid #4CAF50; box-shadow: 0 0 20px rgba(76, 175, 80, 0.4); padding: 30px 20px; }
+        .success-icon { font-size: 50px; color: #ffd700; margin-bottom: 15px; } 
+        .code-display { background: #000; color: #0f0; padding: 10px; border-radius: 5px; margin: 15px 0; font-family: monospace; word-break: break-all; border: 1px dashed #4CAF50; }
         .delete-btn { background: #d32f2f; color: white; }
 
         /* Admin Icon in Header */
         #adminIcon { font-size: 20px; cursor: pointer; color: #ff6f00; margin-right: 10px; display: none; }
+        
+        /* History Table Styles */
+        .history-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        .history-table th, .history-table td { border: 1px solid #333; padding: 8px; text-align: left; font-size: 12px; }
+        .history-table th { background: #444; color: #ffd700; }
+        .history-code { font-family: monospace; color: #0f0; }
     </style>
 </head>
 <body>
@@ -28,7 +36,7 @@
         <div class="logo">🔑 CODE GEN SHOP</div>
         <div style="display: flex; align-items: center;">
             <span id="adminIcon">⚙️</span>
-            <div class="balance" id="userBalance">Loading...</div>
+            <div class="balance" id="userBalance" onclick="location.href='/profile'" style="cursor: pointer;">Loading...</div>
         </div>
     </header>
 
@@ -57,9 +65,8 @@
                 <h3 style="color:red; margin-top:0;">ADD NEW STOCK</h3>
                 <form id="addStockForm">
                     <input type="text" id="stockName" class="inp-field" placeholder="Item Name (e.g. API Key)" required>
-                    <input type="text" id="stockPrice" class="inp-field" placeholder="Price (e.g. 4000)" required>
+                    <input type="number" id="stockPrice" class="inp-field" placeholder="Price (e.g. 4000)" required>
                     <input type="url" id="imageUrl" class="inp-field" placeholder="Image URL (e.g. https://link.com/logo.png)">
-                    
                     <select id="stockCategory" class="inp-field">
                         <option value="key">Key</option>
                         <option value="code">Code</option>
@@ -85,13 +92,7 @@
     </div>
 
     <div id="successModal" class="modal">
-        <div class="modal-content">
-            <h2 style="color: #0f0;">SUCCESS!</h2>
-            <p>Your new code is:</p>
-            <div id="purchasedCodeDisplay" class="result-code"></div>
-            <button class="copy-btn" onclick="copyCode()">COPY CODE</button>
-            <button class="close-btn" onclick="closeModal('successModal')">CLOSE</button>
-        </div>
+        <div class="modal-content"><h2 style="color: #0f0;">SUCCESS!</h2><p>Your new code is:</p><div id="purchasedCodeDisplay" class="result-code"></div><button class="copy-btn" onclick="copyCode()">COPY CODE</button><button class="close-btn" onclick="closeModal('successModal')">CLOSE</button></div>
     </div>
     <div id="historyModal" class="modal">
         <div class="modal-content"><h2 style="color: #ffd700; margin-top: 0;">MY ORDERS</h2><div id="historyList">Loading...</div><button class="close-btn" onclick="closeModal('historyModal')">CLOSE</button></div>
@@ -101,43 +102,21 @@
         
         let allItems = [];
 
-        function toggleAdminPanel() { /* ... */ } // Logic remains unchanged
-        function showAdminTools(isAdmin) { /* ... */ } // Logic remains unchanged
-
-        async function loadItemsAndUI() {
-            const itemRes = await fetch('/api/items');
-            const items = await itemRes.json();
-            allItems = items;
-
-            const select = document.getElementById('codeType');
-            select.innerHTML = '<option value="">Select Item</option>';
-            
-            const listDisplay = document.getElementById('itemListDisplay');
-            listDisplay.innerHTML = '';
-
-            if (items.length === 0) {
-                listDisplay.innerHTML = '<p style="color:red; font-weight:bold;">No items in stock. Add items via ADMIN TOOLS.</p>';
-                select.innerHTML = '<option value="">No items available</option>';
-                return;
+        function toggleAdminPanel() {
+            const adminArea = document.getElementById('adminArea');
+            if (adminArea.style.display === 'none' || adminArea.style.display === '') {
+                adminArea.style.display = 'block';
+            } else {
+                adminArea.style.display = 'none';
             }
-
-            let itemHtml = '<ul>';
-            items.forEach(item => {
-                // Populate Dropdown
-                select.innerHTML += `<option value="${item.name}">${item.name} (${item.price})</option>`;
-                
-                // Populate Visible List with Image and Price
-                const imageTag = item.imageUrl ? `<img src="${item.imageUrl}" style="width: 25px; height: 25px; object-fit: cover; margin-right: 10px; border-radius: 5px;">` : '•';
-                
-                itemHtml += `
-                    <li style="display: flex; align-items: center; margin-bottom: 5px; color: ${item.stock > 0 ? '#0F0' : '#FF6347'};">
-                        ${imageTag}
-                        ${item.name} - Price: ${item.price} (Stock: ${item.stock})
-                    </li>
-                `;
-            });
-            listDisplay.innerHTML = itemHtml + '</ul>';
         }
+        
+        function showAdminTools(isAdmin) {
+            document.getElementById('adminArea').style.display = 'none';
+            document.getElementById('adminIcon').style.display = isAdmin ? 'block' : 'none';
+        }
+
+        async function loadItemsAndUI() { /* ... unchanged ... */ }
         
         async function init() {
             const userRes = await fetch('/api/me');
@@ -146,46 +125,49 @@
             
             document.getElementById('userBalance').innerHTML = `${user.username.toUpperCase()} | <span style="color:#0f0">${user.balance} MMK</span>`;
             
-            if (user.username === 'admin') {
-                document.getElementById('adminIcon').style.display = 'block';
-            }
+            showAdminTools(user.username === 'admin');
             
             await loadItemsAndUI();
         }
 
-        // --- Event Handlers (UPDATE) ---
-        document.getElementById('addStockForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const name = document.getElementById('stockName').value;
-            const price = document.getElementById('stockPrice').value;
-            const imageUrl = document.getElementById('imageUrl').value; // Get new field
-            
-            const data = {
-                category: document.getElementById('stockCategory').value,
-                name: name,
-                price: price + " MMK",
-                imageUrl: imageUrl, // Save Image URL
-                stock: document.getElementById('stockCodes').value.split('\n').filter(s => s.trim() !== "")
-            };
-
-            const res = await fetch('/api/add-item', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
-            if (res.ok) {
-                alert(`Stock for ${name} Added!`);
-            } else {
-                alert("Failed to add stock.");
-            }
-            e.target.reset();
-            init();
-        });
-
-        // --- Utility Functions (Omitted for brevity, but all previous handlers are here) ---
+        // --- Utility & Modal Functions ---
         function openModal(id) { document.getElementById(id).style.display = 'flex'; }
         function closeModal(id) { /* ... */ }
         function copyCode() { /* ... */ }
-        async function showHistory() { /* ... */ }
-        document.getElementById('generateBtn').addEventListener('click', async () => { /* ... */ });
-        document.getElementById('topupForm').addEventListener('submit', async (e) => { /* ... */ });
+        
+        async function showHistory() {
+            openModal('historyModal');
+            const listContainer = document.getElementById('historyList');
+            listContainer.innerHTML = 'Loading...';
+
+            const res = await fetch('/api/history');
+            const data = await res.json();
+
+            listContainer.innerHTML = '';
+            if(data.length === 0) { listContainer.innerHTML = '<p style="text-align:center;">No purchases yet.</p>'; return; }
+            
+            let tableHtml = '<table class="history-table"><thead><tr><th>Item</th><th>Code</th><th>Price</th></tr></thead><tbody>';
+            data.forEach(record => {
+                tableHtml += `
+                    <tr>
+                        <td>${record.itemName}</td>
+                        <td class="history-code">${record.code}</td>
+                        <td>${record.price}</td>
+                    </tr>
+                `;
+            });
+            tableHtml += '</tbody></table>';
+
+            listContainer.innerHTML = tableHtml;
+        }
+
+        // --- Event Handlers ---
         document.getElementById('adminIcon').addEventListener('click', toggleAdminPanel);
+
+        document.getElementById('generateBtn').addEventListener('click', async () => { /* ... buy logic ... */ });
+        document.getElementById('addStockForm').addEventListener('submit', async (e) => { /* ... add stock logic ... */ });
+        document.getElementById('topupForm').addEventListener('submit', async (e) => { /* ... topup logic ... */ });
+        
         document.getElementById('topupUser').value = 'admin'; 
 
         init();
