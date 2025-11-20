@@ -18,16 +18,17 @@
         .success-box { background: #1a1a1a; border: 2px solid #4CAF50; box-shadow: 0 0 20px rgba(76, 175, 80, 0.4); padding: 30px 20px; }
         .success-icon { font-size: 50px; color: #ffd700; margin-bottom: 15px; } 
         .code-display { background: #000; color: #0f0; padding: 10px; border-radius: 5px; margin: 15px 0; font-family: monospace; word-break: break-all; border: 1px dashed #4CAF50; }
-        .delete-btn { background: #d32f2f; color: white; }
-
-        /* Admin Icon in Header */
-        #adminIcon { font-size: 20px; cursor: pointer; color: #ff6f00; margin-right: 10px; display: none; }
+        .copy-btn { background: #2196F3; color: white; border: none; padding: 10px 0; width: 100%; margin-top: 10px; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        .close-btn { background: #555; color: white; border: none; padding: 10px 0; width: 100%; margin-top: 10px; border-radius: 5px; cursor: pointer; }
         
         /* History Table Styles */
         .history-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
         .history-table th, .history-table td { border: 1px solid #333; padding: 8px; text-align: left; font-size: 12px; }
         .history-table th { background: #444; color: #ffd700; }
         .history-code { font-family: monospace; color: #0f0; }
+
+        /* Admin Icon in Header */
+        #adminIcon { font-size: 20px; cursor: pointer; color: #ff6f00; margin-right: 10px; display: none; }
     </style>
 </head>
 <body>
@@ -36,7 +37,7 @@
         <div class="logo">🔑 CODE GEN SHOP</div>
         <div style="display: flex; align-items: center;">
             <span id="adminIcon">⚙️</span>
-            <div class="balance" id="userBalance" onclick="location.href='/profile'" style="cursor: pointer;">Loading...</div>
+            <div class="balance" id="userBalance">Loading...</div>
         </div>
     </header>
 
@@ -92,7 +93,13 @@
     </div>
 
     <div id="successModal" class="modal">
-        <div class="modal-content"><h2 style="color: #0f0;">SUCCESS!</h2><p>Your new code is:</p><div id="purchasedCodeDisplay" class="result-code"></div><button class="copy-btn" onclick="copyCode()">COPY CODE</button><button class="close-btn" onclick="closeModal('successModal')">CLOSE</button></div>
+        <div class="modal-content">
+            <h2 style="color: #0f0;">SUCCESS!</h2>
+            <p>Your new code is:</p>
+            <div id="purchasedCodeDisplay" class="result-code"></div>
+            <button class="copy-btn" onclick="copyCode()">COPY CODE</button>
+            <button class="close-btn" onclick="closeModal('successModal')">CLOSE</button>
+        </div>
     </div>
     <div id="historyModal" class="modal">
         <div class="modal-content"><h2 style="color: #ffd700; margin-top: 0;">MY ORDERS</h2><div id="historyList">Loading...</div><button class="close-btn" onclick="closeModal('historyModal')">CLOSE</button></div>
@@ -116,7 +123,30 @@
             document.getElementById('adminIcon').style.display = isAdmin ? 'block' : 'none';
         }
 
-        async function loadItemsAndUI() { /* ... unchanged ... */ }
+        async function loadItemsAndUI() {
+            const itemRes = await fetch('/api/items');
+            const items = await itemRes.json();
+            allItems = items;
+
+            const select = document.getElementById('codeType');
+            select.innerHTML = '<option value="">Select Item</option>';
+            
+            const listDisplay = document.getElementById('itemListDisplay');
+            listDisplay.innerHTML = '';
+
+            if (items.length === 0) {
+                listDisplay.innerHTML = '<p style="color:red; font-weight:bold;">No items in stock. Add items via ADMIN TOOLS.</p>';
+                select.innerHTML = '<option value="">No items available</option>';
+                return;
+            }
+
+            let itemHtml = '<ul>';
+            items.forEach(item => {
+                select.innerHTML += `<option value="${item.name}">${item.name} (${item.price})</option>`;
+                itemHtml += `<li style="color: ${item.stock > 0 ? '#0F0' : 'red'};">${item.name} - Stock: ${item.stock}</li>`;
+            });
+            listDisplay.innerHTML = itemHtml + '</ul>';
+        }
         
         async function init() {
             const userRes = await fetch('/api/me');
@@ -130,10 +160,20 @@
             await loadItemsAndUI();
         }
 
-        // --- Utility & Modal Functions ---
-        function openModal(id) { document.getElementById(id).style.display = 'flex'; }
-        function closeModal(id) { /* ... */ }
-        function copyCode() { /* ... */ }
+        // --- Utility & Modal Functions (Fixing the Close button) ---
+        function openModal(id) { 
+            document.getElementById(id).style.display = 'flex'; 
+        }
+        function closeModal(id) { 
+            // This is the fix for the close button failure
+            document.getElementById(id).style.display = 'none';
+        }
+        function copyCode() { 
+            const code = document.getElementById('purchasedCodeDisplay').textContent;
+            navigator.clipboard.writeText(code).then(() => {
+                alert('Code copied!');
+            });
+        }
         
         async function showHistory() {
             openModal('historyModal');
@@ -164,9 +204,63 @@
         // --- Event Handlers ---
         document.getElementById('adminIcon').addEventListener('click', toggleAdminPanel);
 
-        document.getElementById('generateBtn').addEventListener('click', async () => { /* ... buy logic ... */ });
-        document.getElementById('addStockForm').addEventListener('submit', async (e) => { /* ... add stock logic ... */ });
-        document.getElementById('topupForm').addEventListener('submit', async (e) => { /* ... topup logic ... */ });
+        document.getElementById('generateBtn').addEventListener('click', async () => {
+            const codeType = document.getElementById('codeType').value;
+            if (!codeType || codeType === 'No items available') { alert("Please select an item."); return; }
+            
+            const res = await fetch('/api/buy', {
+                method: 'POST',
+                body: JSON.stringify({ itemName: codeType }) 
+            });
+            const result = await res.json();
+            
+            if (result.success) {
+                document.getElementById('purchasedCodeDisplay').textContent = result.code;
+                openModal('successModal');
+                init();
+            } else {
+                alert("Failed: " + (result.error || "Unknown Error. Check Admin Stock."));
+            }
+        });
+        
+        document.getElementById('addStockForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const name = document.getElementById('stockName').value;
+            const price = document.getElementById('stockPrice').value;
+            const imageUrl = document.getElementById('imageUrl').value;
+            
+            const data = {
+                category: document.getElementById('stockCategory').value,
+                name: name,
+                price: price + " MMK",
+                imageUrl: imageUrl, 
+                stock: document.getElementById('stockCodes').value.split('\n').filter(s => s.trim() !== "")
+            };
+
+            const res = await fetch('/api/add-item', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
+            if (res.ok) {
+                alert(`Stock for ${name} Added!`);
+            } else {
+                alert("Failed to add stock.");
+            }
+            e.target.reset();
+            init();
+        });
+
+        document.getElementById('topupForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const u = document.getElementById('topupUser').value;
+            const a = document.getElementById('topupAmount').value;
+
+            const res = await fetch('/api/admin/topup', { method: 'POST', body: JSON.stringify({ username: u, amount: a }) });
+            if (res.ok) {
+                alert("Topup Success!");
+            } else {
+                alert("Topup Failed!");
+            }
+            e.target.reset();
+            init();
+        });
         
         document.getElementById('topupUser').value = 'admin'; 
 
