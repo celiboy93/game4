@@ -48,12 +48,9 @@ app.get("/", async (c) => {
   const iter = kv.list<Product>({ prefix: ["products"] });
   let productsHtml = "";
   for await (const entry of iter) { productsHtml += ProductCard(entry.value); }
-  
   return c.html(Layout("Shop", `
     ${config.maintenance ? '<div class="bg-red-600 text-white text-center py-1 mb-4 rounded font-bold">⚠️ Maintenance Mode Active (Only Admin can see this)</div>' : ''}
-    
     ${ImageSlider(config.sliderImages)}
-
     <div class="flex flex-col md:flex-row justify-end items-center mb-6 gap-4">
         <div class="relative w-full md:w-64"><input type="text" id="searchInput" onkeyup="filterProducts()" placeholder="Search products..." class="w-full bg-slate-800 border border-slate-700 text-white px-4 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none pl-10"><div class="absolute left-3 top-2.5 text-slate-400">🔍</div></div>
     </div>
@@ -145,6 +142,7 @@ app.post("/redeem", async (c) => {
     return c.html(ProfilePage({ ...user, balance: user.balance + voucher.amount }, { active: config.bonusActive, amount: config.bonusAmount }, { type: 'success', text: `Successfully added ${voucher.amount} Ks!` }));
 });
 
+// --- BUY ROUTE (API Key Fix) ---
 app.post("/buy", async (c) => {
   const user = await getSessionUser(c);
   if (!user) return c.json({ success: false, message: "Unauthorized" }, 401);
@@ -156,11 +154,15 @@ app.post("/buy", async (c) => {
   const product = await getProduct(id as string);
   if (!product) return c.json({ success: false, message: "Product not found" });
   if (user.balance < product.price) return c.json({ success: false, message: "Insufficient Balance" });
+  
   let finalDisplayCode = "";
-  let soldKeyIdentifier = null; 
+  let soldKeyIdentifier = null; // Raw Key for API, or full code for Manual
+
   if (product.type === "manual") {
     if (!product.stock.length) return c.json({ success: false, message: "Out of Stock" });
     finalDisplayCode = product.stock[0];
+    soldKeyIdentifier = finalDisplayCode; // For manual, raw code IS the full code
+    
     const res = await kv.atomic().check(await kv.get(["products", product.id])).check(await kv.get(["users", user.username])).set(["products", product.id], { ...product, stock: product.stock.slice(1) }).set(["users", user.username], { ...user, balance: user.balance - product.price }).commit();
     if(!res.ok) return c.json({ success: false, message: "Transaction Failed. Try Again." });
   } else {
@@ -184,8 +186,11 @@ app.post("/buy", async (c) => {
         }
         if (!validItem) return c.json({ success: false, message: "Stock Unavailable from API" });
         finalDisplayCode = `Key: ${validItem.key}\nExpires: ${validItem.expiration_date}`;
-        soldKeyIdentifier = validItem.key;
-      } catch (e) { finalDisplayCode = text; }
+        soldKeyIdentifier = validItem.key; // Raw Key for copy
+      } catch (e) { 
+          finalDisplayCode = text;
+          soldKeyIdentifier = text; 
+      }
       const resKv = await kv.atomic().check(await kv.get(["users", user.username])).set(["users", user.username], { ...user, balance: user.balance - product.price }).commit();
       if(!resKv.ok) throw new Error();
       if (soldKeyIdentifier) await markKeyAsSold(soldKeyIdentifier, user.username);
@@ -193,7 +198,14 @@ app.post("/buy", async (c) => {
   }
   const tx = await addHistory(user.username, "purchase", product.name, product.price, finalDisplayCode);
   if(tx) await addGlobalSale(user.username, tx);
-  return c.json({ success: true, code: finalDisplayCode, newBalance: user.balance - product.price });
+  
+  // Return both formatted code AND raw code
+  return c.json({ 
+      success: true, 
+      code: finalDisplayCode, 
+      rawCode: soldKeyIdentifier, // New field for Smart Copy
+      newBalance: user.balance - product.price 
+  });
 });
 
 app.get("/deposit", async (c) => {
@@ -222,31 +234,28 @@ app.get("/register", async (c) => { const config = await getConfig(); if (config
 app.post("/register", async (c) => { const config = await getConfig(); if (config.noReg) return c.html(Layout("Registration Closed", `<div class="text-center py-10 text-red-400 text-xl font-bold">⚠️ New registrations are currently disabled.</div>`)); const { username, password } = await c.req.parseBody(); const existing = await getUser(username as string); if (existing) return c.html(Layout("Register", AuthForm("Register", "Username already taken"))); const list = kv.list({ prefix: ["users"] }, { limit: 1 }); const isFirst = (await list.next()).done; const initialBalance = config.bonusActive ? config.bonusAmount : 0; await kv.set(["users", username as string], { username, password, balance: initialBalance, isAdmin: isFirst, hasClaimedBonus: config.bonusActive, createdAt: Date.now() } as User); if(initialBalance > 0) { await addHistory(username as string, "bonus", "Welcome Bonus", initialBalance, "Registration Gift"); } setCookie(c, "session_user", username as string); return c.redirect("/"); });
 app.get("/logout", (c) => { deleteCookie(c, "session_user"); return c.redirect("/login"); });
 
+// Admin Routes
 app.get("/admin", async (c) => {
   try {
       const user = await getSessionUser(c);
       if (!user?.isAdmin) return c.redirect("/");
-      
       const prodIter = kv.list<Product>({ prefix: ["products"] });
       let prodRows = "";
       for await (const { value: p } of prodIter) { const stockDisplay = p.type === 'manual' ? p.stock.length : 'Auto (API)'; prodRows += `<tr class="border-b border-slate-700 hover:bg-slate-800"><td class="p-3">${p.name}</td><td class="p-3">${p.price.toLocaleString()} Ks</td><td class="p-3">${stockDisplay}</td><td class="p-3 flex gap-2"><a href="/admin/edit?id=${p.id}" class="text-yellow-400 hover:underline">Edit</a><form action="/admin/delete" method="POST" onsubmit="return confirm('Are you sure?')" style="margin:0;"><input type="hidden" name="id" value="${p.id}"><button class="text-red-400 hover:underline">Delete</button></form></td></tr>`; }
       
-      const userCursor = c.req.query("user_cursor");
-      const decodedUserCursor = userCursor ? decodeCursor(userCursor) : undefined;
+      const userCursor = c.req.query("user_cursor"); const decodedUserCursor = userCursor ? decodeCursor(userCursor) : undefined;
       const userIter = kv.list<User>({ prefix: ["users"] }, { limit: 10, cursor: decodedUserCursor });
       let userListHtml = ""; let nextUserCursor = null;
       for await (const { value: u, key } of userIter) { nextUserCursor = key; if (u.username !== user.username) { userListHtml += `<div class="flex justify-between items-center border-b border-slate-700 py-2 text-sm"><div><span class="text-slate-300 select-all cursor-pointer font-bold" onclick="document.querySelector('input[name=username]').value = '${u.username}'">${u.username}</span><span class="text-xs ml-2 ${u.isBlocked ? 'text-red-500' : 'text-green-500'}">${u.isBlocked ? '(Blocked)' : '(Active)'}</span></div><div class="flex items-center gap-2"><span class="text-green-400">${u.balance.toLocaleString()} Ks</span><form action="/admin/block" method="POST" style="margin:0"><input type="hidden" name="username" value="${u.username}"><input type="hidden" name="status" value="${u.isBlocked ? 'unblock' : 'block'}"><button class="text-xs px-2 py-1 rounded ${u.isBlocked ? 'bg-green-600' : 'bg-red-600'} text-white">${u.isBlocked ? 'Unblock' : 'Block'}</button></form></div></div>`; } }
       const encodedUserCursor = nextUserCursor ? encodeCursor(nextUserCursor) : null;
 
-      const saleCursor = c.req.query("sale_cursor");
-      const decodedSaleCursor = saleCursor ? decodeCursor(saleCursor) : undefined;
+      const saleCursor = c.req.query("sale_cursor"); const decodedSaleCursor = saleCursor ? decodeCursor(saleCursor) : undefined;
       const saleIter = kv.list<GlobalSale>({ prefix: ["global_sales"] }, { limit: 10, reverse: true, cursor: decodedSaleCursor });
       const sales: GlobalSale[] = []; let nextSaleCursor = null;
       for await (const entry of saleIter) { sales.push(entry.value); nextSaleCursor = entry.key; }
       const encodedSaleCursor = nextSaleCursor ? encodeCursor(nextSaleCursor) : null;
 
       const config = await getConfig();
-
       return c.html(Layout("Admin", `
         <div class="grid lg:grid-cols-3 gap-8">
           <div class="lg:col-span-1 space-y-6">
@@ -261,14 +270,7 @@ app.get("/admin", async (c) => {
                     <div><label class="text-xs text-slate-400 uppercase">Announcement</label><input name="banner" value="${config.banner}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm"></div>
                     <div><label class="text-xs text-slate-400 uppercase">Telegram</label><input name="telegram" value="${config.telegram}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm"></div>
                     <div><label class="text-xs text-slate-400 uppercase">Payment Details</label><textarea name="payment" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm h-20">${config.payment}</textarea></div>
-                    
-                    <div>
-                        <label class="text-xs text-slate-400 uppercase">Slider Images (URLs)</label>
-                        <input name="slider1" placeholder="Image 1 URL" value="${config.sliderImages[0] || ''}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm mb-1">
-                        <input name="slider2" placeholder="Image 2 URL" value="${config.sliderImages[1] || ''}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm mb-1">
-                        <input name="slider3" placeholder="Image 3 URL" value="${config.sliderImages[2] || ''}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm">
-                    </div>
-
+                    <div><label class="text-xs text-slate-400 uppercase">Slider Images (URLs)</label><input name="slider1" placeholder="Image 1 URL" value="${config.sliderImages[0] || ''}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm mb-1"><input name="slider2" placeholder="Image 2 URL" value="${config.sliderImages[1] || ''}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm mb-1"><input name="slider3" placeholder="Image 3 URL" value="${config.sliderImages[2] || ''}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm"></div>
                     <button class="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-2 rounded font-bold w-full">Update Settings</button>
                 </form>
             </div>
@@ -288,16 +290,7 @@ app.get("/admin", async (c) => {
 
 app.post("/admin/refund", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); await processRefund(body.username as string, Number(body.date), body.id as string); return c.redirect("/admin"); });
 app.post("/admin/block", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const targetUsername = body.username as string; const shouldBlock = body.status === 'block'; const targetUser = await getUser(targetUsername); if(targetUser) { await updateUser({ ...targetUser, isBlocked: shouldBlock }); } return c.redirect("/admin"); });
-app.post("/admin/config", async (c) => { 
-    const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); 
-    await setConfig("banner", body.banner as string); await setConfig("telegram", body.telegram as string); await setConfig("payment", body.payment as string); 
-    await setConfig("maintenance", body.maintenance === "on"); await setConfig("no_reg", body.noReg === "on"); 
-    await setConfig("bonus_active", body.bonusActive === "on"); await setConfig("bonus_amount", Number(body.bonusAmount));
-    // Save Slider Images
-    const images = [body.slider1, body.slider2, body.slider3].filter(url => url && url.toString().trim() !== "");
-    await setConfig("slider_images", images);
-    return c.redirect("/admin"); 
-});
+app.post("/admin/config", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); await setConfig("banner", body.banner as string); await setConfig("telegram", body.telegram as string); await setConfig("payment", body.payment as string); await setConfig("maintenance", body.maintenance === "on"); await setConfig("no_reg", body.noReg === "on"); await setConfig("bonus_active", body.bonusActive === "on"); await setConfig("bonus_amount", Number(body.bonusAmount)); const images = [body.slider1, body.slider2, body.slider3].filter(url => url && url.toString().trim() !== ""); await setConfig("slider_images", images); return c.redirect("/admin"); });
 app.post("/admin/voucher", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const code = (body.code as string).trim().toUpperCase(); const amount = Number(body.amount); await createVoucher(code, amount); return c.redirect("/admin"); });
 app.post("/admin/topup", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const targetUsername = (body.username as string).trim(); const amount = Number(body.amount); const targetUser = await getUser(targetUsername); if (!targetUser) return c.html(Layout("Admin Error", "User Not Found", user)); await kv.set(["users", targetUsername], { ...targetUser, balance: targetUser.balance + amount }); await addHistory(targetUsername, "topup", "Admin Topup", amount, `Added by Admin`); return c.redirect("/admin"); });
 app.post("/admin/add", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const p: Product = { id: crypto.randomUUID(), name: body.name as string, description: body.desc as string, price: Number(body.price), type: body.type as any, stock: body.type === 'manual' ? (body.data as string).split("\n").map(s=>s.trim()).filter(Boolean) : [], apiUrl: body.type === 'api' ? (body.data as string).trim() : undefined, imageUrl: body.imageUrl as string }; await kv.set(["products", p.id], p); return c.redirect("/admin"); });
