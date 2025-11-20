@@ -1,11 +1,27 @@
 import { Hono } from "jsr:@hono/hono";
 import { getCookie, setCookie, deleteCookie } from "jsr:@hono/hono/cookie";
-import { kv, User, Product, Transaction, GlobalSale, getUser, updateUser, getProduct, addHistory, isKeySold, markKeyAsSold, getConfig, setConfig, createVoucher, getVoucher, markVoucherUsed, addGlobalSale, processRefund, save2DResult, placeBet, TwoDBet, process2DWinnings } from "./db.ts";
+import { kv, User, Product, Transaction, GlobalSale, getUser, updateUser, getProduct, addHistory, isKeySold, markKeyAsSold, getConfig, setConfig, createVoucher, getVoucher, markVoucherUsed, addGlobalSale, processRefund, save2DResult, placeBet, TwoDBet, process2DWinnings, hashPassword, createSession, getSession, deleteSession } from "./db.ts";
 import { Layout, AuthForm, ProductCard, HistoryTable, MaintenancePage, ProfilePage, TransferPage, AdminUserTable, AdminSalesTable, ImageSlider, TwoDPage } from "./ui.ts";
 
 const app = new Hono();
 
-// Safe Cursor Helpers
+// --- 1. SECURITY MIDDLEWARE (Anti-Bot) ---
+app.use('*', async (c, next) => {
+    const ip = c.req.header('x-forwarded-for') || 'unknown';
+    const key = ["ratelimit", ip];
+    const countRes = await kv.get<number>(key);
+    const count = countRes.value || 0;
+    
+    // Allow max 100 requests per minute
+    if (count > 100) {
+        return c.text("Too many requests. Please try again later.", 429);
+    }
+    
+    await kv.set(key, count + 1, { expireIn: 60 });
+    await next();
+});
+
+// --- HELPERS ---
 function encodeCursor(cursor: any) { try { return btoa(encodeURIComponent(JSON.stringify(cursor))); } catch { return null; } }
 function decodeCursor(str: string) { try { return JSON.parse(decodeURIComponent(atob(str))); } catch { return undefined; } }
 
@@ -31,13 +47,20 @@ async function getApiAvailableStock(p: Product): Promise<number | string> {
     } catch { return "?"; }
 }
 
+// --- 2. SECURE SESSION CHECK ---
 async function getSessionUser(c: any) {
-  const sessionUser = getCookie(c, "session_user");
-  if (!sessionUser) return null;
-  return await getUser(sessionUser);
+  // Get Session ID from Cookie (NOT Username)
+  const sessionId = getCookie(c, "session_id");
+  if (!sessionId) return null;
+  
+  // Verify Session in Database
+  const username = await getSession(sessionId);
+  if (!username) return null;
+
+  return await getUser(username);
 }
 
-// --- Routes ---
+// --- APP ROUTES ---
 
 app.get("/", async (c) => {
   const user = await getSessionUser(c);
@@ -79,7 +102,6 @@ app.post("/2d/bet", async (c) => {
     if (amount < 100) return c.html(Layout("Error", `<div class="p-8 text-center"><h2 class="text-red-400 text-xl mb-4">Minimum bet is 100 Ks</h2><a href="/2d" class="text-blue-400">Back</a></div>`, user));
     if (user.balance < amount) return c.html(Layout("Error", `<div class="p-8 text-center"><h2 class="text-red-400 text-xl mb-4">Insufficient Balance</h2><a href="/deposit" class="bg-blue-600 px-4 py-2 rounded text-white">Top Up</a></div>`, user));
 
-    // TIME CHECK
     const now = new Date().toLocaleString("en-US", { timeZone: "Asia/Yangon" });
     const dateObj = new Date(now);
     const hour = dateObj.getHours();
@@ -91,61 +113,30 @@ app.post("/2d/bet", async (c) => {
     else if (timeValue >= 1201 && timeValue <= 1558) session = "Evening";
     else return c.html(Layout("Betting Closed", `<div class="max-w-md mx-auto glass p-8 rounded-2xl text-center mt-10 border border-red-500/30"><div class="text-5xl mb-4">⛔</div><h2 class="text-2xl font-bold text-red-400 mb-2">Market Closed</h2><p class="text-slate-300 mb-4">Morning Close: 11:45 AM<br>Evening Close: 3:58 PM</p><a href="/2d" class="bg-slate-700 text-white px-6 py-2 rounded-lg hover:bg-slate-600">Back</a></div>`, user));
 
-    // --- NUMBER GENERATION LOGIC ---
     let numbersToBet: string[] = [];
-
-    if (type === 'double') {
-        // Generate 00, 11, 22 ... 99
-        for(let i=0; i<10; i++) numbersToBet.push(`${i}${i}`);
-    } else if (type === 'head') {
-        // Input '3' -> 30, 31... 39
-        if(!/^\d$/.test(rawInput)) return c.html(Layout("Error", `<div class="p-8 text-center text-red-400">Invalid Head input (0-9 only)</div>`, user));
-        for(let i=0; i<10; i++) numbersToBet.push(`${rawInput}${i}`);
-    } else if (type === 'tail') {
-        // Input '3' -> 03, 13... 93
-        if(!/^\d$/.test(rawInput)) return c.html(Layout("Error", `<div class="p-8 text-center text-red-400">Invalid Tail input (0-9 only)</div>`, user));
-        for(let i=0; i<10; i++) numbersToBet.push(`${i}${rawInput}`);
-    } else {
-        // Direct or R
-        if(!/^\d{2}$/.test(rawInput)) return c.html(Layout("Error", `<div class="p-8 text-center text-red-400">Invalid Number (00-99 only)</div>`, user));
+    if (type === 'double') { for(let i=0; i<10; i++) numbersToBet.push(`${i}${i}`); } 
+    else if (type === 'head') { if(!/^\d$/.test(rawInput)) return c.html(Layout("Error", `<div class="p-8 text-center text-red-400">Invalid Head input</div>`, user)); for(let i=0; i<10; i++) numbersToBet.push(`${rawInput}${i}`); } 
+    else if (type === 'tail') { if(!/^\d$/.test(rawInput)) return c.html(Layout("Error", `<div class="p-8 text-center text-red-400">Invalid Tail input</div>`, user)); for(let i=0; i<10; i++) numbersToBet.push(`${i}${rawInput}`); } 
+    else {
+        if(!/^\d{2}$/.test(rawInput)) return c.html(Layout("Error", `<div class="p-8 text-center text-red-400">Invalid Number</div>`, user));
         numbersToBet.push(rawInput);
-        
-        if (type === 'r') {
-            // Add reverse
-            const rev = rawInput.split('').reverse().join('');
-            if (rev !== rawInput) numbersToBet.push(rev);
-        }
+        if (type === 'r') { const rev = rawInput.split('').reverse().join(''); if (rev !== rawInput) numbersToBet.push(rev); }
     }
 
-    // Calculate Total Cost
     const totalCost = numbersToBet.length * amount;
+    if (user.balance < totalCost) return c.html(Layout("Error", `<div class="p-8 text-center"><h2 class="text-red-400 text-xl mb-4">Insufficient Balance</h2><p class="text-slate-300 mb-4">Total: ${totalCost.toLocaleString()} Ks</p><a href="/deposit" class="bg-blue-600 px-4 py-2 rounded text-white">Top Up</a></div>`, user));
 
-    if (user.balance < totalCost) return c.html(Layout("Error", `<div class="p-8 text-center"><h2 class="text-red-400 text-xl mb-4">Insufficient Balance</h2><p class="text-slate-300 mb-4">Total Bets: ${numbersToBet.length}<br>Total Cost: ${totalCost.toLocaleString()} Ks</p><a href="/deposit" class="bg-blue-600 px-4 py-2 rounded text-white">Top Up</a></div>`, user));
+    const res = await kv.atomic().check(await kv.get(["users", user.username])).set(["users", user.username], { ...user, balance: user.balance - totalCost }).commit();
+    if (!res.ok) return c.html(Layout("Error", "Transaction Failed.", user));
 
-    // ATOMIC DEDUCTION
-    const res = await kv.atomic()
-        .check(await kv.get(["users", user.username]))
-        .set(["users", user.username], { ...user, balance: user.balance - totalCost })
-        .commit();
-
-    if (!res.ok) return c.html(Layout("Error", "Transaction Failed. Please try again.", user));
-
-    // SAVE BETS
-    for (const num of numbersToBet) {
-        await placeBet(user.username, num, amount, session);
-    }
-    
-    // History Entry (Summary)
-    const detailText = type === 'double' ? 'Doubles' : type === 'head' ? `${rawInput} Head` : type === 'tail' ? `${rawInput} Tail` : type === 'r' ? `${rawInput} + R` : `${rawInput}`;
-    await addHistory(user.username, "bet_2d", `2D: ${detailText}`, totalCost, `Session: ${session} (${numbersToBet.length} bets)`);
-
+    for (const num of numbersToBet) { await placeBet(user.username, num, amount, session); }
+    await addHistory(user.username, "bet_2d", `2D Bet (${numbersToBet.length})`, totalCost, `Session: ${session}`);
     return c.redirect("/2d");
 });
+
 app.get("/api/2d-proxy", async (c) => {
     const config = await getConfig();
-    if (config.manual2d && config.manual2d.trim() !== "") {
-        return c.json({ live: { twod: config.manual2d, set: "MANUAL", value: "ADMIN", time: "Live" } });
-    }
+    if (config.manual2d && config.manual2d.trim() !== "") { return c.json({ live: { twod: config.manual2d, set: "MANUAL", value: "ADMIN", time: "Live" } }); }
     try {
         const res = await fetch("https://api.thaistock2d.com/live");
         const data = await res.json();
@@ -163,11 +154,7 @@ app.get("/api/2d-proxy", async (c) => {
 });
 
 app.get("/api/2d-history", async (c) => {
-    try {
-        const res = await fetch("https://api.thaistock2d.com/2d_result");
-        const data = await res.json();
-        return c.json(data.slice(0, 20)); 
-    } catch { return c.json([]); }
+    try { const res = await fetch("https://api.thaistock2d.com/2d_result"); const data = await res.json(); return c.json(data.slice(0, 20)); } catch { return c.json([]); }
 });
 
 app.get("/transfer", async (c) => {
@@ -229,15 +216,19 @@ app.post("/profile/avatar", async (c) => {
     await updateUser({ ...user, avatar: newAvatar });
     return c.html(ProfilePage({ ...user, avatar: newAvatar }, { active: config.bonusActive, amount: config.bonusAmount }, { type: 'success', text: 'Avatar Updated!' }));
 });
-
+// SECURE PASSWORD CHANGE
 app.post("/profile/password", async (c) => {
     const user = await getSessionUser(c);
     if (!user) return c.redirect("/login");
     const config = await getConfig();
     const body = await c.req.parseBody();
-    if (user.password !== body.oldPassword) { return c.html(ProfilePage(user, { active: config.bonusActive, amount: config.bonusAmount }, { type: 'error', text: 'Incorrect Old Password' })); }
-    await updateUser({ ...user, password: body.newPassword as string });
-    return c.html(ProfilePage({ ...user, password: body.newPassword as string }, { active: config.bonusActive, amount: config.bonusAmount }, { type: 'success', text: 'Password Changed Successfully!' }));
+    const oldPassHash = await hashPassword(body.oldPassword as string);
+    if (user.password !== oldPassHash) { 
+        return c.html(ProfilePage(user, { active: config.bonusActive, amount: config.bonusAmount }, { type: 'error', text: 'Incorrect Old Password' })); 
+    }
+    const newPassHash = await hashPassword(body.newPassword as string);
+    await updateUser({ ...user, password: newPassHash });
+    return c.html(ProfilePage({ ...user, password: newPassHash }, { active: config.bonusActive, amount: config.bonusAmount }, { type: 'success', text: 'Password Changed Successfully!' }));
 });
 
 app.post("/redeem", async (c) => {
@@ -335,10 +326,52 @@ app.get("/history", async (c) => {
 });
 
 app.get("/login", (c) => c.html(Layout("Login", AuthForm("Login"))));
-app.post("/login", async (c) => { const body = await c.req.parseBody(); const user = await getUser(body.username as string); if (user && user.password === body.password) { if(user.isBlocked) return c.html(Layout("Login", AuthForm("Login", "Your account has been blocked."))); const maxAge = body.remember === 'on' ? 60 * 60 * 24 * 15 : undefined; setCookie(c, "session_user", user.username, { maxAge }); return c.redirect("/"); } return c.html(Layout("Login", AuthForm("Login", "Invalid username or password"))); });
+
+// SECURE LOGIN (WITH HASH CHECK)
+app.post("/login", async (c) => {
+  const body = await c.req.parseBody();
+  const user = await getUser(body.username as string);
+  const inputHash = await hashPassword(body.password as string);
+  const isMatch = user?.password === inputHash || user?.password === body.password;
+
+  if (user && isMatch) { 
+      if(user.isBlocked) return c.html(Layout("Login", AuthForm("Login", "Your account has been blocked.")));
+      if (user.password !== inputHash) { await updateUser({ ...user, password: inputHash }); }
+      const maxAge = body.remember === 'on' ? 60 * 60 * 24 * 15 : 86400;
+      const sessionId = await createSession(user.username, maxAge);
+      setCookie(c, "session_id", sessionId, { maxAge }); 
+      return c.redirect("/"); 
+  } 
+  return c.html(Layout("Login", AuthForm("Login", "Invalid username or password"))); 
+});
+
 app.get("/register", async (c) => { const config = await getConfig(); if (config.noReg) return c.html(Layout("Registration Closed", `<div class="text-center py-10 text-red-400 text-xl font-bold">⚠️ New registrations are currently disabled.</div>`)); return c.html(Layout("Register", AuthForm("Register"))); });
-app.post("/register", async (c) => { const config = await getConfig(); if (config.noReg) return c.html(Layout("Registration Closed", `<div class="text-center py-10 text-red-400 text-xl font-bold">⚠️ New registrations are currently disabled.</div>`)); const { username, password } = await c.req.parseBody(); const existing = await getUser(username as string); if (existing) return c.html(Layout("Register", AuthForm("Register", "Username already taken"))); const list = kv.list({ prefix: ["users"] }, { limit: 1 }); const isFirst = (await list.next()).done; const initialBalance = config.bonusActive ? config.bonusAmount : 0; await kv.set(["users", username as string], { username, password, balance: initialBalance, isAdmin: isFirst, hasClaimedBonus: config.bonusActive, createdAt: Date.now() } as User); if(initialBalance > 0) { await addHistory(username as string, "bonus", "Welcome Bonus", initialBalance, "Registration Gift"); } setCookie(c, "session_user", username as string); return c.redirect("/"); });
-app.get("/logout", (c) => { deleteCookie(c, "session_user"); return c.redirect("/login"); });
+
+// SECURE REGISTER (WITH HASHING)
+app.post("/register", async (c) => {
+  const config = await getConfig();
+  if (config.noReg) return c.html(Layout("Registration Closed", `<div class="text-center py-10 text-red-400 text-xl font-bold">⚠️ New registrations are currently disabled.</div>`));
+  const { username, password } = await c.req.parseBody();
+  const existing = await getUser(username as string);
+  if (existing) return c.html(Layout("Register", AuthForm("Register", "Username already taken")));
+  const list = kv.list({ prefix: ["users"] }, { limit: 1 });
+  const isFirst = (await list.next()).done;
+  const hashedPassword = await hashPassword(password as string);
+  const initialBalance = config.bonusActive ? config.bonusAmount : 0;
+  await kv.set(["users", username as string], { username, password: hashedPassword, balance: initialBalance, isAdmin: isFirst, hasClaimedBonus: config.bonusActive, createdAt: Date.now() } as User);
+  if(initialBalance > 0) { await addHistory(username as string, "bonus", "Welcome Bonus", initialBalance, "Registration Gift"); }
+  const sessionId = await createSession(username as string);
+  setCookie(c, "session_id", sessionId);
+  return c.redirect("/");
+});
+
+app.get("/logout", async (c) => { 
+    const sid = getCookie(c, "session_id");
+    if(sid) await deleteSession(sid);
+    deleteCookie(c, "session_id"); 
+    return c.redirect("/login"); 
+});
+
 app.get("/forgot", async (c) => { const config = await getConfig(); return c.html(Layout("Forgot Password", `<div class="max-w-md mx-auto glass p-8 rounded-2xl shadow-2xl mt-10 text-center"><div class="text-5xl mb-4">🤔</div><h2 class="text-2xl font-bold text-white mb-4">Forgot Password?</h2><p class="text-slate-400 mb-6">Please contact the Admin on Telegram to reset your password.</p><a href="https://t.me/${config.telegram}" target="_blank" class="inline-block bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded-xl transition shadow-lg mb-4">Contact Admin</a><div><a href="/login" class="text-slate-500 hover:text-white text-sm">Back to Login</a></div></div>`)); });
 
 app.get("/admin", async (c) => {
@@ -398,7 +431,8 @@ app.get("/admin", async (c) => {
 
 app.post("/admin/refund", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); await processRefund(body.username as string, Number(body.date), body.id as string); return c.redirect("/admin"); });
 app.post("/admin/block", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const targetUsername = body.username as string; const shouldBlock = body.status === 'block'; const targetUser = await getUser(targetUsername); if(targetUser) { await updateUser({ ...targetUser, isBlocked: shouldBlock }); } return c.redirect("/admin"); });
-app.post("/admin/reset-password", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const targetUsername = body.username as string; const targetUser = await getUser(targetUsername); if(targetUser) { await updateUser({ ...targetUser, password: "123456" }); } return c.redirect("/admin"); });
+// SECURE ADMIN PASSWORD RESET (HASHED)
+app.post("/admin/reset-password", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const targetUsername = body.username as string; const targetUser = await getUser(targetUsername); if(targetUser) { const newHash = await hashPassword("123456"); await updateUser({ ...targetUser, password: newHash }); } return c.redirect("/admin"); });
 app.post("/admin/config", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); await setConfig("banner", body.banner as string); await setConfig("telegram", body.telegram as string); await setConfig("payment", body.payment as string); await setConfig("maintenance", body.maintenance === "on"); await setConfig("no_reg", body.noReg === "on"); await setConfig("bonus_active", body.bonusActive === "on"); await setConfig("bonus_amount", Number(body.bonusAmount)); await setConfig("manual_2d", body.manual2d as string); const images = [body.slider1, body.slider2, body.slider3].filter(url => url && url.toString().trim() !== ""); await setConfig("slider_images", images); return c.redirect("/admin"); });
 app.post("/admin/voucher", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const code = (body.code as string).trim().toUpperCase(); const amount = Number(body.amount); await createVoucher(code, amount); return c.redirect("/admin"); });
 app.post("/admin/topup", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const targetUsername = (body.username as string).trim(); const amount = Number(body.amount); const targetUser = await getUser(targetUsername); if (!targetUser) return c.html(Layout("Admin Error", "User Not Found", user)); await kv.set(["users", targetUsername], { ...targetUser, balance: targetUser.balance + amount }); await addHistory(targetUsername, "topup", "Admin Topup", amount, `Added by Admin`); return c.redirect("/admin"); });
