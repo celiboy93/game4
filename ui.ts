@@ -1,6 +1,5 @@
 import { User, Product, Transaction } from "./db.ts";
 
-// Avatars List (Netflix Style Icons)
 const AVATARS = ["😎", "👾", "🤖", "👻", "👽", "🐯", "🐼", "🦊", "🦁", "🐷", "🐸", "💀"];
 
 export const Layout = (title: string, content: string, user?: User, bannerText?: string) => `
@@ -73,7 +72,6 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
         }
     }
 
-    // Modal Logic
     let selectedProductId = null;
     function confirmBuy(id, name, price) {
         selectedProductId = id;
@@ -97,13 +95,12 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
             if(data.success) {
                 document.getElementById('purchasedCode').innerText = data.code;
                 document.getElementById('successModal').classList.remove('hidden');
-                const balanceEl = document.getElementById('navBalance');
-                if(balanceEl) balanceEl.innerText = data.newBalance.toLocaleString() + " Ks";
+                // Update all balance instances
+                document.querySelectorAll('.balance-display').forEach(el => el.innerText = data.newBalance.toLocaleString() + " Ks");
             } else { alert(data.message || "Purchase Failed"); }
         } catch (e) { alert("Connection Error"); } finally { confirmBtn.innerText = originalText; confirmBtn.disabled = false; }
     }
 
-    // Avatar Selection
     function selectAvatar(avatar) {
         document.getElementById('selectedAvatarInput').value = avatar;
         document.querySelectorAll('.avatar-option').forEach(el => el.classList.remove('ring-4', 'ring-blue-500'));
@@ -126,20 +123,20 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
       <a href="/" class="text-2xl font-bold text-blue-500 hover:text-blue-400 transition">🎮 GameStore</a>
       <div class="flex gap-4 items-center">
         ${user ? `
-          <a href="/deposit" class="hidden md:flex items-center gap-2 bg-slate-800 hover:bg-slate-700 px-3 py-1 rounded-full transition border border-slate-600">
-             <span class="text-sm text-slate-400">Balance:</span>
-             <span id="navBalance" class="text-green-400 font-bold">${user.balance.toLocaleString()} Ks</span>
-             <span class="bg-green-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">+</span>
-          </a>
-          
-          <a href="/profile" class="flex items-center gap-2 hover:opacity-80 transition">
-            <div class="w-8 h-8 rounded-md bg-slate-700 flex items-center justify-center text-lg border border-slate-500 shadow-sm">
-                ${user.avatar || "😎"}
-            </div>
-            <span class="hidden md:block font-medium text-white">${user.username}</span>
-          </a>
-
-          ${user.isAdmin ? '<a href="/admin" class="text-yellow-400 hover:text-yellow-300 font-semibold">Admin</a>' : ''}
+          <div class="flex items-center gap-3">
+              <a href="/deposit" class="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 px-3 py-1 rounded-full transition border border-slate-600 text-sm">
+                 <span class="hidden md:inline text-slate-400">Balance:</span>
+                 <span class="balance-display text-green-400 font-bold">${user.balance.toLocaleString()} Ks</span>
+                 <span class="bg-green-600 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">+</span>
+              </a>
+              
+              <a href="/profile" class="relative">
+                <div class="w-9 h-9 rounded-md bg-slate-700 flex items-center justify-center text-xl border border-slate-500 shadow-sm hover:ring-2 ring-blue-500 transition">
+                    ${user.avatar || "😎"}
+                </div>
+              </a>
+              ${user.isAdmin ? '<a href="/admin" class="hidden md:block text-yellow-400 hover:text-yellow-300 font-semibold text-sm">Admin</a>' : ''}
+          </div>
         ` : `
           <a href="/login" class="text-slate-300 hover:text-white">Login</a>
           <a href="/register" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition">Register</a>
@@ -221,7 +218,6 @@ export const HistoryTable = (transactions: Transaction[], nextCursor: string | n
     return `<div class="glass rounded-xl overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-left"><thead class="bg-slate-800 text-slate-300 uppercase text-xs"><tr><th class="p-4">Date</th><th class="p-4">Type</th><th class="p-4">Description</th><th class="p-4 text-right">Amount</th></tr></thead><tbody class="divide-y divide-slate-700">${rows}</tbody></table></div>${nextCursor ? `<div class="p-4 text-center border-t border-slate-700"><a href="/history?cursor=${nextCursor}" class="inline-block bg-slate-700 hover:bg-slate-600 text-white px-6 py-2 rounded transition">Load Next 10 Entries</a></div>` : ''}</div>`;
 };
 
-// New: Profile Page
 export const ProfilePage = (user: User, message?: {type: 'success'|'error', text: string}) => {
     const avatarGrid = AVATARS.map(av => `
         <div id="av-${av}" onclick="selectAvatar('${av}')" class="avatar-option text-4xl p-3 bg-slate-800 rounded-xl cursor-pointer hover:bg-slate-700 transition border border-slate-600 flex justify-center items-center ${user.avatar === av ? 'ring-4 ring-blue-500' : ''}">
@@ -229,11 +225,12 @@ export const ProfilePage = (user: User, message?: {type: 'success'|'error', text
         </div>
     `).join("");
 
+    // Added 'w-full' and refined grid layout for mobile alignment
     return Layout("Profile", `
-        <div class="max-w-4xl mx-auto grid gap-8 lg:grid-cols-2">
+        <div class="max-w-4xl mx-auto flex flex-col lg:grid lg:grid-cols-2 gap-8 w-full">
             
-            <div class="space-y-8">
-                <div class="glass p-8 rounded-2xl text-center">
+            <div class="space-y-8 w-full">
+                <div class="glass p-8 rounded-2xl text-center w-full">
                     <div class="text-6xl mb-4">${user.avatar || "😎"}</div>
                     <h2 class="text-2xl font-bold text-white mb-1">${user.username}</h2>
                     <p class="text-green-400 font-bold text-lg">${user.balance.toLocaleString()} Ks</p>
@@ -241,17 +238,18 @@ export const ProfilePage = (user: User, message?: {type: 'success'|'error', text
                          <a href="/history" class="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg text-sm">History</a>
                          <a href="/logout" class="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-lg text-sm">Logout</a>
                     </div>
+                    ${user.isAdmin ? `<a href="/admin" class="mt-4 inline-block text-yellow-400 text-sm font-bold border border-yellow-500/30 px-4 py-1 rounded-full">Access Admin Panel</a>` : ''}
                 </div>
 
-                <div class="glass p-8 rounded-2xl border-t-4 border-purple-500">
+                <div class="glass p-8 rounded-2xl border-t-4 border-purple-500 w-full">
                     <h3 class="text-xl font-bold text-white mb-4 flex items-center gap-2">🎟️ Redeem Voucher</h3>
                     <form action="/redeem" method="POST" class="flex gap-2">
-                        <input name="code" placeholder="Enter Code (e.g. HAPPY)" required class="flex-1 bg-slate-900 border border-slate-600 rounded-lg p-3 text-white outline-none focus:border-purple-500 uppercase">
-                        <button class="bg-purple-600 hover:bg-purple-500 text-white font-bold px-6 rounded-lg transition shadow-lg shadow-purple-500/20">Claim</button>
+                        <input name="code" placeholder="Code" required class="flex-1 bg-slate-900 border border-slate-600 rounded-lg p-3 text-white outline-none uppercase min-w-0">
+                        <button class="bg-purple-600 hover:bg-purple-500 text-white font-bold px-4 rounded-lg transition">Claim</button>
                     </form>
                 </div>
 
-                <div class="glass p-8 rounded-2xl">
+                <div class="glass p-8 rounded-2xl w-full">
                     <h3 class="text-xl font-bold text-white mb-4">🔒 Change Password</h3>
                     <form action="/profile/password" method="POST" class="space-y-3">
                         <input type="password" name="oldPassword" placeholder="Current Password" required class="w-full bg-slate-900 border border-slate-600 rounded-lg p-3 text-white">
@@ -261,7 +259,7 @@ export const ProfilePage = (user: User, message?: {type: 'success'|'error', text
                 </div>
             </div>
 
-            <div class="glass p-8 rounded-2xl">
+            <div class="glass p-8 rounded-2xl w-full h-fit">
                 <h3 class="text-xl font-bold text-white mb-6">Choose Avatar</h3>
                 <form action="/profile/avatar" method="POST">
                     <input type="hidden" name="avatar" id="selectedAvatarInput" value="${user.avatar || '😎'}">
@@ -273,9 +271,6 @@ export const ProfilePage = (user: User, message?: {type: 'success'|'error', text
             </div>
         </div>
         
-        ${message ? `
-        <div class="fixed bottom-5 right-5 ${message.type === 'success' ? 'bg-green-600' : 'bg-red-600'} text-white px-6 py-3 rounded-xl shadow-2xl animate-bounce">
-            ${message.text}
-        </div>` : ''}
+        ${message ? `<div class="fixed bottom-5 right-5 ${message.type === 'success' ? 'bg-green-600' : 'bg-red-600'} text-white px-6 py-3 rounded-xl shadow-2xl animate-bounce">${message.text}</div>` : ''}
     `, user);
 }
