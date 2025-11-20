@@ -17,24 +17,24 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
         if (!typeEl) return;
         const type = typeEl.value;
         
-        // Safely try to hide elements if they exist
-        const manualDiv = document.getElementById('input-manual');
-        const apiDiv = document.getElementById('input-api');
-        const sharedDiv = document.getElementById('input-shared');
+        const m = document.getElementById('input-manual');
+        const a = document.getElementById('input-api');
+        const s = document.getElementById('input-shared');
+        
+        if(m) m.style.display = 'none';
+        if(a) a.style.display = 'none';
+        if(s) s.style.display = 'none';
 
-        if(manualDiv) manualDiv.style.display = 'none';
-        if(apiDiv) apiDiv.style.display = 'none';
-        if(sharedDiv) sharedDiv.style.display = 'none';
-
-        if (type === 'manual' && manualDiv) manualDiv.style.display = 'block';
-        else if (type === 'api' && apiDiv) apiDiv.style.display = 'block';
-        else if (type === 'shared' && sharedDiv) sharedDiv.style.display = 'block';
+        if (type === 'manual' && m) m.style.display = 'block';
+        else if (type === 'api' && a) a.style.display = 'block';
+        else if (type === 'shared' && s) s.style.display = 'block';
     }
 
     document.addEventListener("DOMContentLoaded", () => {
-        // Call toggle once on load for Admin pages
+        // Call toggle once on load for Admin Edit Page
         toggleProductInputs();
 
+        // Highlight Active Tab
         const path = window.location.pathname;
         const navIds = {
             '/': 'nav-home', 
@@ -73,7 +73,7 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
             } catch { el.innerText = "?"; }
         });
 
-        // Page Loader
+        // Page Loader Logic
         const loader = document.getElementById('page-loader');
         document.querySelectorAll('a').forEach(link => {
             link.addEventListener('click', (e) => {
@@ -129,15 +129,17 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
                 html = '<div class="text-center p-4 text-slate-500 text-xs">No records found.</div>';
             } else {
                 data.forEach(item => {
-                    html += \`
-                    <div class="flex justify-between items-center p-3 border-b border-slate-700 hover:bg-slate-800/50 transition">
-                        <div class="text-slate-400 text-xs">\${item.date}<br><span class="text-slate-500">\${item.time}</span></div>
-                        <div class="flex gap-3 text-sm font-bold">
-                            <div class="text-center"><span class="text-[10px] text-slate-500 block">SET</span>\${item.set}</div>
-                            <div class="text-center"><span class="text-[10px] text-slate-500 block">VAL</span>\${item.value}</div>
-                            <div class="text-center bg-yellow-500/20 px-2 rounded border border-yellow-500/30"><span class="text-[10px] text-yellow-600 block">2D</span><span class="text-yellow-400 text-lg">\${item.twod}</span></div>
-                        </div>
-                    </div>\`;
+                    if(item.twod && item.set) {
+                        html += \`
+                        <div class="flex justify-between items-center p-3 border-b border-slate-700 hover:bg-slate-800/50 transition">
+                            <div class="text-slate-400 text-xs">\${item.date}<br><span class="text-slate-500">\${item.time}</span></div>
+                            <div class="flex gap-3 text-sm font-bold">
+                                <div class="text-center"><span class="text-[10px] text-slate-500 block">SET</span>\${item.set}</div>
+                                <div class="text-center"><span class="text-[10px] text-slate-500 block">VAL</span>\${item.value}</div>
+                                <div class="text-center bg-yellow-500/20 px-2 rounded border border-yellow-500/30"><span class="text-[10px] text-yellow-600 block">2D</span><span class="text-yellow-400 text-lg">\${item.twod}</span></div>
+                            </div>
+                        </div>\`;
+                    }
                 });
             }
             list.innerHTML = html;
@@ -266,7 +268,7 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
   
   <div id="page-loader" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm"><div class="loader"></div></div>
 
-  <nav class="glass sticky top-0 z-40">
+  <nav class="glass sticky top-0 z-40 border-b border-slate-700">
     <div class="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
       <a href="/" class="flex items-center gap-2 group">
         <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-500/20 border border-white/10">
@@ -372,6 +374,10 @@ export const Layout = (title: string, content: string, user?: User, bannerText?:
         </div>
     </div>
   </div>
+  
+  <footer class="text-center text-slate-600 py-6 text-sm">
+    &copy; 2025 Digital Shop System
+  </footer>
 </body>
 </html>
 `;
@@ -413,6 +419,7 @@ export const ProductCard = (p: Product) => {
       stockDisplay = `Stock: <span class="api-stock-loader animate-pulse" data-id="${p.id}">...</span>`;
       hasStock = true; 
   } else if (p.type === 'shared') {
+      // Calculate remaining
       const capacity = Number(p.sharedCapacity || 0);
       const sold = Number(p.sharedSold || 0);
       const remaining = Math.max(0, capacity - sold);
@@ -459,7 +466,7 @@ export const HistoryTable = (transactions: Transaction[], nextCursor: string | n
         rows = transactions.map(t => {
             let color = 'text-white'; let sign = ''; let bg = 'bg-slate-700';
             if(t.type === 'purchase' || t.type === 'transfer_sent') { color = 'text-red-400'; sign = '-'; bg = 'bg-red-500/20'; }
-            else if (t.type === 'topup' || t.type === 'voucher' || t.type === 'bonus' || t.type === 'transfer_received' || t.type === 'refund') { color = 'text-green-400'; sign = '+'; bg = 'bg-green-500/20'; }
+            else if (t.type === 'topup' || t.type === 'voucher' || t.type === 'bonus' || t.type === 'transfer_received' || t.type === 'refund' || t.type === 'win_2d') { color = 'text-green-400'; sign = '+'; bg = 'bg-green-500/20'; }
             const dateStr = new Date(t.date).toLocaleString("en-US", { timeZone: "Asia/Yangon" });
             return `<tr class="border-b border-slate-700 hover:bg-slate-800/50 transition"><td class="p-4 text-sm text-slate-400">${dateStr}</td><td class="p-4"><span class="px-2 py-1 rounded text-[10px] font-bold uppercase ${bg} ${color}">${t.type.replace('_', ' ')}</span></td><td class="p-4 font-medium text-white">${t.itemName} ${t.detail ? `<div class="text-xs text-slate-500 mt-1 font-mono truncate w-32 md:w-64">${t.detail.substring(0, 30)}...</div>` : ''}</td><td class="p-4 text-right ${color} font-bold">${sign}${t.amount.toLocaleString()} Ks</td></tr>`;
         }).join(""); 
@@ -468,6 +475,74 @@ export const HistoryTable = (transactions: Transaction[], nextCursor: string | n
     const tabsHtml = tabs.map(t => `<a href="/history?filter=${t.id}" class="flex-1 py-2 text-center text-sm font-bold rounded-lg transition ${activeTab === t.id ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}">${t.label}</a>`).join("");
     return `<div class="flex gap-2 mb-6 bg-slate-900/50 p-1 rounded-xl">${tabsHtml}</div><div class="glass rounded-xl overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-left"><thead class="bg-slate-800 text-slate-300 uppercase text-xs"><tr><th class="p-4">Date</th><th class="p-4">Type</th><th class="p-4">Description</th><th class="p-4 text-right">Amount</th></tr></thead><tbody class="divide-y divide-slate-700">${rows}</tbody></table></div>${nextCursor ? `<div class="p-4 text-center border-t border-slate-700"><a href="/history?filter=${activeTab}&cursor=${nextCursor}" class="inline-block bg-slate-700 hover:bg-slate-600 text-white px-6 py-2 rounded transition">Load Next 10 Entries</a></div>` : ''}</div>`;
 };
+
+export const TwoDPage = (user: User, bets: TwoDBet[]) => {
+    let betHistoryHtml = '';
+    if(bets.length === 0) {
+        betHistoryHtml = '<div class="text-center p-4 text-slate-500 text-xs">No active bets today.</div>';
+    } else {
+        bets.forEach(b => {
+            let statusColor = 'text-yellow-400';
+            if(b.status === 'win') statusColor = 'text-green-400';
+            if(b.status === 'lose') statusColor = 'text-red-400';
+            
+            betHistoryHtml += `
+            <div class="flex justify-between items-center p-3 border-b border-slate-700 last:border-0">
+                <div class="text-xs text-slate-400">${b.session} <br> ${new Date(b.timestamp).toLocaleTimeString("en-US", { timeZone: "Asia/Yangon" })}</div>
+                <div class="font-bold text-white text-lg">${b.number}</div>
+                <div class="text-right">
+                    <div class="text-green-400 text-sm">${b.amount} Ks</div>
+                    <div class="text-[10px] uppercase ${statusColor}">${b.status}</div>
+                </div>
+            </div>`;
+        });
+    }
+
+    return Layout("2D Live", `
+    <div class="max-w-md mx-auto">
+        <div class="glass rounded-2xl p-1 mb-6 border border-yellow-500/30 relative overflow-hidden">
+            <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-yellow-400 to-red-500"></div>
+            <div class="p-6 text-center">
+                <div class="flex justify-center items-center gap-2 mb-4">
+                    <span class="relative flex h-3 w-3"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span><span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span></span>
+                    <h2 class="text-lg font-bold text-slate-300 tracking-widest uppercase">Thai SET Index</h2>
+                </div>
+                <div class="mb-6">
+                    <div class="text-8xl font-black text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 to-yellow-600 tracking-tighter drop-shadow-xl" id="live-2d-num">--</div>
+                    <div class="text-sm text-slate-500 font-mono mt-2">Updated: <span id="live-time">--:--:--</span></div>
+                </div>
+                <div class="grid grid-cols-2 gap-4 text-sm">
+                    <div class="bg-slate-800 p-3 rounded-xl border border-slate-700"><div class="text-slate-400 mb-1">SET</div><div class="text-xl font-bold text-blue-400 font-mono" id="live-set">0.00</div></div>
+                    <div class="bg-slate-800 p-3 rounded-xl border border-slate-700"><div class="text-slate-400 mb-1">VALUE</div><div class="text-xl font-bold text-green-400 font-mono" id="live-val">0.00</div></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="glass p-6 rounded-2xl mb-6 border border-blue-500/30">
+            <h3 class="text-lg font-bold text-white mb-4 flex items-center gap-2">🎰 Place Bet</h3>
+            <form action="/2d/bet" method="POST" class="space-y-3">
+                <div class="grid grid-cols-2 gap-3">
+                    <input name="number" type="number" min="0" max="99" placeholder="Number (00-99)" required class="bg-slate-900 border border-slate-600 rounded-lg p-3 text-white text-center text-lg font-bold focus:ring-2 focus:ring-blue-500 outline-none">
+                    <input name="amount" type="number" min="100" placeholder="Amount (Ks)" required class="bg-slate-900 border border-slate-600 rounded-lg p-3 text-white text-center text-lg font-bold focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+                <button class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition shadow-lg shadow-blue-500/20">Bet Now</button>
+            </form>
+        </div>
+
+        <div class="glass rounded-xl overflow-hidden border border-slate-700/50 mb-6">
+            <div class="px-4 py-3 bg-slate-800/50 border-b border-slate-700 text-slate-300 font-bold text-sm uppercase tracking-wider">My Bets (Today)</div>
+            <div class="max-h-48 overflow-y-auto">${betHistoryHtml}</div>
+        </div>
+
+        <div class="glass rounded-xl overflow-hidden border border-slate-700/50">
+            <div class="flex justify-between items-center px-4 py-3 bg-slate-800/50 border-b border-slate-700">
+                <span class="text-slate-300 font-bold text-sm uppercase tracking-wider">History</span>
+                <input type="month" id="month-picker" value="${new Date().toISOString().slice(0, 7)}" class="bg-slate-900 text-white text-xs p-1 rounded border border-slate-600 outline-none">
+            </div>
+            <div id="history-list" class="max-h-64 overflow-y-auto"><div class="p-4 text-center text-slate-500 text-xs">Loading history...</div></div>
+        </div>
+    </div>
+`, user);
 
 export const ProfilePage = (user: User, bonusConfig: {active: boolean, amount: number}, message?: {type: 'success'|'error', text: string}) => {
     const avatarGrid = AVATARS.map(av => `<div id="av-${av}" onclick="selectAvatar('${av}')" class="avatar-option text-4xl p-3 bg-slate-800 rounded-xl cursor-pointer hover:bg-slate-700 transition border border-slate-600 flex justify-center items-center ${user.avatar === av ? 'ring-4 ring-blue-500' : ''}">${av}</div>`).join("");
@@ -531,72 +606,4 @@ export const AdminSalesTable = (sales: GlobalSale[], nextCursor: string | null) 
         </tr>`).join("");
     if(sales.length === 0) rows = `<tr><td colspan="5" class="p-4 text-center text-slate-500">No recent sales.</td></tr>`;
     return `<div class="glass rounded-xl overflow-hidden mt-6"><div class="px-6 py-4 border-b border-slate-700"><h3 class="text-lg font-bold text-white">🛒 Recent Sales Log</h3></div><div class="overflow-x-auto"><table class="w-full text-left"><thead class="bg-slate-800 text-slate-300 uppercase text-xs"><tr><th class="p-3">Date</th><th class="p-3">User</th><th class="p-3">Item</th><th class="p-3">Price</th><th class="p-3">Action</th></tr></thead><tbody class="divide-y divide-slate-700">${rows}</tbody></table></div>${nextCursor ? `<div class="p-3 text-center border-t border-slate-700"><a href="/admin?sale_cursor=${nextCursor}" class="text-blue-400 hover:underline">Load More Sales</a></div>` : ''}</div>`;
-}
-
-export const TwoDPage = (user: User, bets: TwoDBet[]) => {
-    let betHistoryHtml = '';
-    if(bets.length === 0) {
-        betHistoryHtml = '<div class="text-center p-4 text-slate-500 text-xs">No active bets today.</div>';
-    } else {
-        bets.forEach(b => {
-            let statusColor = 'text-yellow-400';
-            if(b.status === 'win') statusColor = 'text-green-400';
-            if(b.status === 'lose') statusColor = 'text-red-400';
-            betHistoryHtml += `
-            <div class="flex justify-between items-center p-3 border-b border-slate-700 last:border-0">
-                <div class="text-xs text-slate-400">${b.time} <br> ${new Date(b.timestamp).toLocaleTimeString()}</div>
-                <div class="font-bold text-white text-lg">${b.number}</div>
-                <div class="text-right">
-                    <div class="text-green-400 text-sm">${b.amount} Ks</div>
-                    <div class="text-[10px] uppercase ${statusColor}">${b.status}</div>
-                </div>
-            </div>`;
-        });
-    }
-
-    return Layout("2D Live", `
-    <div class="max-w-md mx-auto">
-        <div class="glass rounded-2xl p-1 mb-6 border border-yellow-500/30 relative overflow-hidden">
-            <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-yellow-400 to-red-500"></div>
-            <div class="p-6 text-center">
-                <div class="flex justify-center items-center gap-2 mb-4">
-                    <span class="relative flex h-3 w-3"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span><span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span></span>
-                    <h2 class="text-lg font-bold text-slate-300 tracking-widest uppercase">Thai SET Index</h2>
-                </div>
-                <div class="mb-6">
-                    <div class="text-8xl font-black text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 to-yellow-600 tracking-tighter drop-shadow-xl" id="live-2d-num">--</div>
-                    <div class="text-sm text-slate-500 font-mono mt-2">Updated: <span id="live-time">--:--:--</span></div>
-                </div>
-                <div class="grid grid-cols-2 gap-4 text-sm">
-                    <div class="bg-slate-800 p-3 rounded-xl border border-slate-700"><div class="text-slate-400 mb-1">SET</div><div class="text-xl font-bold text-blue-400 font-mono" id="live-set">0.00</div></div>
-                    <div class="bg-slate-800 p-3 rounded-xl border border-slate-700"><div class="text-slate-400 mb-1">VALUE</div><div class="text-xl font-bold text-green-400 font-mono" id="live-val">0.00</div></div>
-                </div>
-            </div>
-        </div>
-
-        <div class="glass p-6 rounded-2xl mb-6 border border-blue-500/30">
-            <h3 class="text-lg font-bold text-white mb-4 flex items-center gap-2">🎰 Place Bet</h3>
-            <form action="/2d/bet" method="POST" class="space-y-3">
-                <div class="grid grid-cols-2 gap-3">
-                    <input name="number" type="number" min="0" max="99" placeholder="Number (00-99)" required class="bg-slate-900 border border-slate-600 rounded-lg p-3 text-white text-center text-lg font-bold focus:ring-2 focus:ring-blue-500 outline-none">
-                    <input name="amount" type="number" min="100" placeholder="Amount (Ks)" required class="bg-slate-900 border border-slate-600 rounded-lg p-3 text-white text-center text-lg font-bold focus:ring-2 focus:ring-blue-500 outline-none">
-                </div>
-                <button class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition shadow-lg shadow-blue-500/20">Bet Now</button>
-            </form>
-        </div>
-
-        <div class="glass rounded-xl overflow-hidden border border-slate-700/50 mb-6">
-            <div class="px-4 py-3 bg-slate-800/50 border-b border-slate-700 text-slate-300 font-bold text-sm uppercase tracking-wider">My Bets (Today)</div>
-            <div class="max-h-48 overflow-y-auto">${betHistoryHtml}</div>
-        </div>
-
-        <div class="glass rounded-xl overflow-hidden border border-slate-700/50">
-            <div class="flex justify-between items-center px-4 py-3 bg-slate-800/50 border-b border-slate-700">
-                <span class="text-slate-300 font-bold text-sm uppercase tracking-wider">History</span>
-                <input type="month" id="month-picker" value="${new Date().toISOString().slice(0, 7)}" class="bg-slate-900 text-white text-xs p-1 rounded border border-slate-600 outline-none">
-            </div>
-            <div id="history-list" class="max-h-64 overflow-y-auto"><div class="p-4 text-center text-slate-500 text-xs">Loading history...</div></div>
-        </div>
-    </div>
-`, user);
 }
