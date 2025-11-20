@@ -1,27 +1,13 @@
 import { Hono } from "jsr:@hono/hono";
 import { getCookie, setCookie, deleteCookie } from "jsr:@hono/hono/cookie";
 import { kv, User, Product, Transaction, GlobalSale, getUser, updateUser, getProduct, addHistory, isKeySold, markKeyAsSold, getConfig, setConfig, createVoucher, getVoucher, markVoucherUsed, addGlobalSale, processRefund } from "./db.ts";
-import { Layout, AuthForm, ProductCard, HistoryTable, MaintenancePage, ProfilePage, TransferPage, AdminUserTable, AdminSalesTable } from "./ui.ts";
+import { Layout, AuthForm, ProductCard, HistoryTable, MaintenancePage, ProfilePage, TransferPage, AdminUserTable, AdminSalesTable, ImageSlider } from "./ui.ts";
 
 const app = new Hono();
 
-// --- NEW: Safe Cursor Helpers (Fixes Myanmar Text Error) ---
-function encodeCursor(cursor: any) {
-    try {
-        // encodeURIComponent fixes the Unicode/Myanmar text issue
-        return btoa(encodeURIComponent(JSON.stringify(cursor)));
-    } catch {
-        return null;
-    }
-}
-
-function decodeCursor(str: string) {
-    try {
-        return JSON.parse(decodeURIComponent(atob(str)));
-    } catch {
-        return undefined;
-    }
-}
+// Safe Cursor Helpers
+function encodeCursor(cursor: any) { try { return btoa(encodeURIComponent(JSON.stringify(cursor))); } catch { return null; } }
+function decodeCursor(str: string) { try { return JSON.parse(decodeURIComponent(atob(str))); } catch { return undefined; } }
 
 async function getApiAvailableStock(p: Product): Promise<number | string> {
     if (!p.apiUrl) return 0;
@@ -62,10 +48,13 @@ app.get("/", async (c) => {
   const iter = kv.list<Product>({ prefix: ["products"] });
   let productsHtml = "";
   for await (const entry of iter) { productsHtml += ProductCard(entry.value); }
+  
   return c.html(Layout("Shop", `
     ${config.maintenance ? '<div class="bg-red-600 text-white text-center py-1 mb-4 rounded font-bold">⚠️ Maintenance Mode Active (Only Admin can see this)</div>' : ''}
-    <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-        <h1 class="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-500">Kairizy Store</h1>
+    
+    ${ImageSlider(config.sliderImages)}
+
+    <div class="flex flex-col md:flex-row justify-end items-center mb-6 gap-4">
         <div class="relative w-full md:w-64"><input type="text" id="searchInput" onkeyup="filterProducts()" placeholder="Search products..." class="w-full bg-slate-800 border border-slate-700 text-white px-4 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none pl-10"><div class="absolute left-3 top-2.5 text-slate-400">🔍</div></div>
     </div>
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">${productsHtml || '<p class="text-slate-500 col-span-full text-center">No products available yet.</p>'}</div>
@@ -204,7 +193,6 @@ app.post("/buy", async (c) => {
   }
   const tx = await addHistory(user.username, "purchase", product.name, product.price, finalDisplayCode);
   if(tx) await addGlobalSale(user.username, tx);
-  
   return c.json({ success: true, code: finalDisplayCode, newBalance: user.balance - product.price });
 });
 
@@ -221,60 +209,17 @@ app.get("/check-stock", async (c) => {
 });
 
 app.get("/history", async (c) => {
-  const user = await getSessionUser(c); 
-  if (!user) return c.redirect("/login"); 
-  
-  // Use safe decode
-  const cursor = c.req.query("cursor");
-  const decodedCursor = cursor ? decodeCursor(cursor) : undefined;
-  const filter = c.req.query("filter") || "all";
-
-  const iter = kv.list<Transaction>({ prefix: ["history", user.username] }, { limit: 50, reverse: true, cursor: decodedCursor }); 
-  const transactions: Transaction[] = [];
-  let nextCursor = null;
-  
-  for await (const entry of iter) { 
-      const t = entry.value;
-      if (filter === 'purchase' && (t.type === 'purchase' || t.type === 'transfer_sent')) transactions.push(t); 
-      else if (filter === 'topup' && (t.type === 'topup' || t.type === 'voucher' || t.type === 'bonus' || t.type === 'transfer_received' || t.type === 'refund')) transactions.push(t); 
-      else if (filter === 'all') transactions.push(t); 
-      nextCursor = entry.key; 
-      if(transactions.length >= 10) break; 
-  }
-  
-  // Use safe encode
+  const user = await getSessionUser(c); if (!user) return c.redirect("/login"); const cursor = c.req.query("cursor"); const decodedCursor = cursor ? decodeCursor(cursor) : undefined; const filter = c.req.query("filter") || "all";
+  const iter = kv.list<Transaction>({ prefix: ["history", user.username] }, { limit: 50, reverse: true, cursor: decodedCursor }); const transactions: Transaction[] = []; let nextCursor = null; 
+  for await (const entry of iter) { const t = entry.value; if (filter === 'purchase' && (t.type === 'purchase' || t.type === 'transfer_sent')) transactions.push(t); else if (filter === 'topup' && (t.type === 'topup' || t.type === 'voucher' || t.type === 'bonus' || t.type === 'transfer_received' || t.type === 'refund')) transactions.push(t); else if (filter === 'all') transactions.push(t); nextCursor = entry.key; if(transactions.length >= 10) break; }
   const encodedCursor = nextCursor ? encodeCursor(nextCursor) : null;
   return c.html(Layout("History", `<div class="max-w-4xl mx-auto"><h1 class="text-3xl font-bold text-white mb-6">Transaction History</h1>${HistoryTable(transactions, encodedCursor, filter)}<div class="mt-4 text-center text-slate-500 text-sm"><a href="/" class="hover:text-blue-400">← Back to Shop</a></div></div>`, user));
 });
 
 app.get("/login", (c) => c.html(Layout("Login", AuthForm("Login"))));
-app.post("/login", async (c) => {
-  const body = await c.req.parseBody();
-  const user = await getUser(body.username as string);
-  if (user && user.password === body.password) { 
-      if(user.isBlocked) return c.html(Layout("Login", AuthForm("Login", "Your account has been blocked.")));
-      const maxAge = body.remember === 'on' ? 60 * 60 * 24 * 15 : undefined;
-      setCookie(c, "session_user", user.username, { maxAge }); 
-      return c.redirect("/"); 
-  } 
-  return c.html(Layout("Login", AuthForm("Login", "Invalid username or password"))); 
-});
-
+app.post("/login", async (c) => { const body = await c.req.parseBody(); const user = await getUser(body.username as string); if (user && user.password === body.password) { if(user.isBlocked) return c.html(Layout("Login", AuthForm("Login", "Your account has been blocked."))); const maxAge = body.remember === 'on' ? 60 * 60 * 24 * 15 : undefined; setCookie(c, "session_user", user.username, { maxAge }); return c.redirect("/"); } return c.html(Layout("Login", AuthForm("Login", "Invalid username or password"))); });
 app.get("/register", async (c) => { const config = await getConfig(); if (config.noReg) return c.html(Layout("Registration Closed", `<div class="text-center py-10 text-red-400 text-xl font-bold">⚠️ New registrations are currently disabled.</div>`)); return c.html(Layout("Register", AuthForm("Register"))); });
-app.post("/register", async (c) => {
-  const config = await getConfig();
-  if (config.noReg) return c.html(Layout("Registration Closed", `<div class="text-center py-10 text-red-400 text-xl font-bold">⚠️ New registrations are currently disabled.</div>`));
-  const { username, password } = await c.req.parseBody();
-  const existing = await getUser(username as string);
-  if (existing) return c.html(Layout("Register", AuthForm("Register", "Username already taken")));
-  const list = kv.list({ prefix: ["users"] }, { limit: 1 });
-  const isFirst = (await list.next()).done;
-  const initialBalance = config.bonusActive ? config.bonusAmount : 0;
-  await kv.set(["users", username as string], { username, password, balance: initialBalance, isAdmin: isFirst, hasClaimedBonus: config.bonusActive, createdAt: Date.now() } as User);
-  if(initialBalance > 0) { await addHistory(username as string, "bonus", "Welcome Bonus", initialBalance, "Registration Gift"); }
-  setCookie(c, "session_user", username as string);
-  return c.redirect("/");
-});
+app.post("/register", async (c) => { const config = await getConfig(); if (config.noReg) return c.html(Layout("Registration Closed", `<div class="text-center py-10 text-red-400 text-xl font-bold">⚠️ New registrations are currently disabled.</div>`)); const { username, password } = await c.req.parseBody(); const existing = await getUser(username as string); if (existing) return c.html(Layout("Register", AuthForm("Register", "Username already taken"))); const list = kv.list({ prefix: ["users"] }, { limit: 1 }); const isFirst = (await list.next()).done; const initialBalance = config.bonusActive ? config.bonusAmount : 0; await kv.set(["users", username as string], { username, password, balance: initialBalance, isAdmin: isFirst, hasClaimedBonus: config.bonusActive, createdAt: Date.now() } as User); if(initialBalance > 0) { await addHistory(username as string, "bonus", "Welcome Bonus", initialBalance, "Registration Gift"); } setCookie(c, "session_user", username as string); return c.redirect("/"); });
 app.get("/logout", (c) => { deleteCookie(c, "session_user"); return c.redirect("/login"); });
 
 app.get("/admin", async (c) => {
@@ -286,28 +231,17 @@ app.get("/admin", async (c) => {
       let prodRows = "";
       for await (const { value: p } of prodIter) { const stockDisplay = p.type === 'manual' ? p.stock.length : 'Auto (API)'; prodRows += `<tr class="border-b border-slate-700 hover:bg-slate-800"><td class="p-3">${p.name}</td><td class="p-3">${p.price.toLocaleString()} Ks</td><td class="p-3">${stockDisplay}</td><td class="p-3 flex gap-2"><a href="/admin/edit?id=${p.id}" class="text-yellow-400 hover:underline">Edit</a><form action="/admin/delete" method="POST" onsubmit="return confirm('Are you sure?')" style="margin:0;"><input type="hidden" name="id" value="${p.id}"><button class="text-red-400 hover:underline">Delete</button></form></td></tr>`; }
       
-      // Safe User Cursor
       const userCursor = c.req.query("user_cursor");
       const decodedUserCursor = userCursor ? decodeCursor(userCursor) : undefined;
-      
       const userIter = kv.list<User>({ prefix: ["users"] }, { limit: 10, cursor: decodedUserCursor });
-      let userListHtml = "";
-      let nextUserCursor = null;
-      for await (const { value: u, key } of userIter) {
-          nextUserCursor = key; 
-          if (u.username !== user.username) { 
-              userListHtml += `<div class="flex justify-between items-center border-b border-slate-700 py-2 text-sm"><div><span class="text-slate-300 select-all cursor-pointer font-bold" onclick="document.querySelector('input[name=username]').value = '${u.username}'">${u.username}</span><span class="text-xs ml-2 ${u.isBlocked ? 'text-red-500' : 'text-green-500'}">${u.isBlocked ? '(Blocked)' : '(Active)'}</span></div><div class="flex items-center gap-2"><span class="text-green-400">${u.balance.toLocaleString()} Ks</span><form action="/admin/block" method="POST" style="margin:0"><input type="hidden" name="username" value="${u.username}"><input type="hidden" name="status" value="${u.isBlocked ? 'unblock' : 'block'}"><button class="text-xs px-2 py-1 rounded ${u.isBlocked ? 'bg-green-600' : 'bg-red-600'} text-white">${u.isBlocked ? 'Unblock' : 'Block'}</button></form></div></div>`; 
-          } 
-      }
+      let userListHtml = ""; let nextUserCursor = null;
+      for await (const { value: u, key } of userIter) { nextUserCursor = key; if (u.username !== user.username) { userListHtml += `<div class="flex justify-between items-center border-b border-slate-700 py-2 text-sm"><div><span class="text-slate-300 select-all cursor-pointer font-bold" onclick="document.querySelector('input[name=username]').value = '${u.username}'">${u.username}</span><span class="text-xs ml-2 ${u.isBlocked ? 'text-red-500' : 'text-green-500'}">${u.isBlocked ? '(Blocked)' : '(Active)'}</span></div><div class="flex items-center gap-2"><span class="text-green-400">${u.balance.toLocaleString()} Ks</span><form action="/admin/block" method="POST" style="margin:0"><input type="hidden" name="username" value="${u.username}"><input type="hidden" name="status" value="${u.isBlocked ? 'unblock' : 'block'}"><button class="text-xs px-2 py-1 rounded ${u.isBlocked ? 'bg-green-600' : 'bg-red-600'} text-white">${u.isBlocked ? 'Unblock' : 'Block'}</button></form></div></div>`; } }
       const encodedUserCursor = nextUserCursor ? encodeCursor(nextUserCursor) : null;
 
-      // Safe Sale Cursor
       const saleCursor = c.req.query("sale_cursor");
       const decodedSaleCursor = saleCursor ? decodeCursor(saleCursor) : undefined;
-      
       const saleIter = kv.list<GlobalSale>({ prefix: ["global_sales"] }, { limit: 10, reverse: true, cursor: decodedSaleCursor });
-      const sales: GlobalSale[] = [];
-      let nextSaleCursor = null;
+      const sales: GlobalSale[] = []; let nextSaleCursor = null;
       for await (const entry of saleIter) { sales.push(entry.value); nextSaleCursor = entry.key; }
       const encodedSaleCursor = nextSaleCursor ? encodeCursor(nextSaleCursor) : null;
 
@@ -327,15 +261,20 @@ app.get("/admin", async (c) => {
                     <div><label class="text-xs text-slate-400 uppercase">Announcement</label><input name="banner" value="${config.banner}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm"></div>
                     <div><label class="text-xs text-slate-400 uppercase">Telegram</label><input name="telegram" value="${config.telegram}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm"></div>
                     <div><label class="text-xs text-slate-400 uppercase">Payment Details</label><textarea name="payment" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm h-20">${config.payment}</textarea></div>
+                    
+                    <div>
+                        <label class="text-xs text-slate-400 uppercase">Slider Images (URLs)</label>
+                        <input name="slider1" placeholder="Image 1 URL" value="${config.sliderImages[0] || ''}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm mb-1">
+                        <input name="slider2" placeholder="Image 2 URL" value="${config.sliderImages[1] || ''}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm mb-1">
+                        <input name="slider3" placeholder="Image 3 URL" value="${config.sliderImages[2] || ''}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm">
+                    </div>
+
                     <button class="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-2 rounded font-bold w-full">Update Settings</button>
                 </form>
             </div>
             <div class="glass p-6 rounded-xl border-l-4 border-purple-500"><h3 class="text-xl font-bold text-white mb-4">🎟️ Create Voucher</h3><form action="/admin/voucher" method="POST" class="space-y-3"><input name="code" placeholder="Voucher Code (e.g. HAPPY)" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white uppercase"><div class="flex gap-2"><input name="amount" type="number" placeholder="Amount" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><button class="bg-purple-600 px-4 rounded text-white font-bold">Create</button></div></form></div>
             <div class="glass p-6 rounded-xl"><h3 class="text-xl font-bold text-white mb-4">💰 User Top Up</h3><form action="/admin/topup" method="POST" class="space-y-3"><input name="username" placeholder="Username" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><div class="flex gap-2"><input name="amount" type="number" placeholder="Amount" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><button class="bg-blue-600 px-4 rounded text-white font-bold">Add</button></div></form></div>
-            <div class="glass p-6 rounded-xl">
-                <h3 class="text-lg font-bold text-white mb-2">👥 Users</h3>
-                ${AdminUserTable(userListHtml, encodedUserCursor)}
-            </div>
+            <div class="glass p-6 rounded-xl"><h3 class="text-lg font-bold text-white mb-2">👥 Users</h3>${AdminUserTable(userListHtml, encodedUserCursor)}</div>
           </div>
           <div class="lg:col-span-2 space-y-8">
             <div class="glass p-6 rounded-xl"><h3 class="text-xl font-bold text-white mb-4">➕ Add Product</h3><form action="/admin/add" method="POST" class="space-y-3"><div class="grid grid-cols-2 gap-4"><input name="name" placeholder="Name" required class="bg-slate-800 border border-slate-600 rounded p-2 text-white"><input name="price" type="number" placeholder="Price" required class="bg-slate-800 border border-slate-600 rounded p-2 text-white"></div><input name="desc" placeholder="Description" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><select name="type" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><option value="manual">Manual Stock</option><option value="api">API Link</option></select><input name="imageUrl" placeholder="Image URL (Optional)" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><textarea name="data" placeholder="Codes (Manual) or URL (API)" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-20"></textarea><button class="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-2 rounded">Add Product</button></form></div>
@@ -344,27 +283,21 @@ app.get("/admin", async (c) => {
           </div>
         </div>
       `, user));
-  } catch (e) {
-      return c.html(Layout("Admin Error", `
-        <div class="max-w-md mx-auto glass p-8 rounded-xl text-center mt-10">
-            <h1 class="text-2xl font-bold text-red-400 mb-4">Admin Panel Error</h1>
-            <pre class="text-left bg-slate-900 p-4 rounded text-xs text-slate-400 overflow-x-auto mb-4">${e}</pre>
-            <a href="/" class="bg-slate-700 text-white px-6 py-2 rounded hover:bg-slate-600">Back Home</a>
-        </div>
-      `, await getSessionUser(c)));
-  }
+  } catch (e) { return c.html(Layout("Admin Error", `<div class="max-w-md mx-auto glass p-8 rounded-xl text-center mt-10"><h1 class="text-2xl font-bold text-red-400 mb-4">Admin Panel Error</h1><pre class="text-left bg-slate-900 p-4 rounded text-xs text-slate-400 overflow-x-auto mb-4">${e}</pre><a href="/" class="bg-slate-700 text-white px-6 py-2 rounded hover:bg-slate-600">Back Home</a></div>`, await getSessionUser(c))); }
 });
 
-app.post("/admin/refund", async (c) => {
-    const user = await getSessionUser(c);
-    if (!user?.isAdmin) return c.redirect("/");
-    const body = await c.req.parseBody();
-    await processRefund(body.username as string, Number(body.date), body.id as string);
-    return c.redirect("/admin");
-});
-
+app.post("/admin/refund", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); await processRefund(body.username as string, Number(body.date), body.id as string); return c.redirect("/admin"); });
 app.post("/admin/block", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const targetUsername = body.username as string; const shouldBlock = body.status === 'block'; const targetUser = await getUser(targetUsername); if(targetUser) { await updateUser({ ...targetUser, isBlocked: shouldBlock }); } return c.redirect("/admin"); });
-app.post("/admin/config", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); await setConfig("banner", body.banner as string); await setConfig("telegram", body.telegram as string); await setConfig("payment", body.payment as string); await setConfig("maintenance", body.maintenance === "on"); await setConfig("no_reg", body.noReg === "on"); await setConfig("bonus_active", body.bonusActive === "on"); await setConfig("bonus_amount", Number(body.bonusAmount)); return c.redirect("/admin"); });
+app.post("/admin/config", async (c) => { 
+    const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); 
+    await setConfig("banner", body.banner as string); await setConfig("telegram", body.telegram as string); await setConfig("payment", body.payment as string); 
+    await setConfig("maintenance", body.maintenance === "on"); await setConfig("no_reg", body.noReg === "on"); 
+    await setConfig("bonus_active", body.bonusActive === "on"); await setConfig("bonus_amount", Number(body.bonusAmount));
+    // Save Slider Images
+    const images = [body.slider1, body.slider2, body.slider3].filter(url => url && url.toString().trim() !== "");
+    await setConfig("slider_images", images);
+    return c.redirect("/admin"); 
+});
 app.post("/admin/voucher", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const code = (body.code as string).trim().toUpperCase(); const amount = Number(body.amount); await createVoucher(code, amount); return c.redirect("/admin"); });
 app.post("/admin/topup", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const targetUsername = (body.username as string).trim(); const amount = Number(body.amount); const targetUser = await getUser(targetUsername); if (!targetUser) return c.html(Layout("Admin Error", "User Not Found", user)); await kv.set(["users", targetUsername], { ...targetUser, balance: targetUser.balance + amount }); await addHistory(targetUsername, "topup", "Admin Topup", amount, `Added by Admin`); return c.redirect("/admin"); });
 app.post("/admin/add", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const p: Product = { id: crypto.randomUUID(), name: body.name as string, description: body.desc as string, price: Number(body.price), type: body.type as any, stock: body.type === 'manual' ? (body.data as string).split("\n").map(s=>s.trim()).filter(Boolean) : [], apiUrl: body.type === 'api' ? (body.data as string).trim() : undefined, imageUrl: body.imageUrl as string }; await kv.set(["products", p.id], p); return c.redirect("/admin"); });
