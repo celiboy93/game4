@@ -1,6 +1,6 @@
 import { Hono } from "jsr:@hono/hono";
 import { getCookie, setCookie, deleteCookie } from "jsr:@hono/hono/cookie";
-// 🔑 Add get2DHistory
+// 🔑 All imports, including the new get2DHistory
 import { kv, User, Product, Transaction, GlobalSale, getUser, updateUser, getProduct, addHistory, isKeySold, markKeyAsSold, getConfig, setConfig, createVoucher, getVoucher, markVoucherUsed, addGlobalSale, processRefund, save2DResult, placeBet, TwoDBet, process2DWinnings, hashPassword, createSession, getSession, deleteSession, get2DHistory } from "./db.ts";
 import { Layout, AuthForm, ProductCard, HistoryTable, MaintenancePage, ProfilePage, TransferPage, AdminUserTable, AdminSalesTable, ImageSlider, TwoDPage } from "./ui.ts";
 
@@ -17,7 +17,8 @@ app.use('*', async (c, next) => {
         return c.text("Too many requests. Please try again later.", 429);
     }
     
-    await kv.set(key, count + 1, { expireIn: 60 });
+    // Set expiration time to 60000ms (1 minute)
+    await kv.set(key, count + 1, { expireIn: 60000 });
     await next();
 });
 
@@ -59,7 +60,9 @@ async function getSessionUser(c: any) {
         return await getUser(username);
     } catch (e) {
         console.error("Session/User retrieval failed:", e);
-        return null;
+        // If session or user data is corrupted, clear the session cookie
+        deleteCookie(c, "session_id");
+        return null; 
     }
 }
 
@@ -71,7 +74,7 @@ app.get("/", async (c) => {
     let productsHtml = "";
     
     try {
-        // 🔑 FIX 1: Safely load user and config first
+        // 1. Safely load user and config first
         user = await getSessionUser(c);
         config = await getConfig();
 
@@ -81,13 +84,13 @@ app.get("/", async (c) => {
 
         const iter = kv.list<Product>({ prefix: ["products"] });
         
-        // 🔑 FIX 2: Deeply defensive loop to prevent ProductCard crash
+        // 2. Deeply defensive loop to prevent ProductCard crash
         for await (const entry of iter) {
             const p = entry.value;
-            // Basic validation to skip corrupted entries
+            // Validate essential fields before calling ProductCard
             if (!p || !p.id || !p.name || typeof p.price !== 'number' || !p.type) {
                 console.warn(`Skipping invalid product entry with key: ${entry.key}`);
-                continue; 
+                continue; // Skip this corrupted entry
             }
             try {
                 productsHtml += ProductCard(p);
@@ -107,14 +110,14 @@ app.get("/", async (c) => {
         `, user, config.banner));
         
     } catch (e) {
-        // 🔑 FIX 3: Catch any critical errors (like KV initialization failure)
-        console.error("Critical error loading homepage:", e);
-        
-        // Return a generic error page, or redirect to login/maintenance if user/config failed to load.
-        return c.html(Layout("Error", `<div class="max-w-md mx-auto p-10 text-center bg-red-900/30 rounded-xl mt-10"><h1 class="text-2xl font-bold text-red-400 mb-4">Internal Server Error</h1><p class="text-slate-300">Failed to load the store. This is usually due to corrupted database entries or connection issues. The admin has been notified.</p><a href="/login" class="mt-4 inline-block text-blue-400 hover:text-blue-300">Try Logging In</a></div>`, user), 500);
+        // 3. Catch all critical errors and redirect to login if possible
+        console.error("CRITICAL ERROR: Homepage route crashed the server.", e);
+        // This attempts a clean redirect, clearing the session just in case it was the root cause.
+        deleteCookie(c, "session_id");
+        return c.redirect("/login");
     }
 });
-// ... (The rest of the main.ts code continues below, unchanged) ...
+
 app.get("/2d", async (c) => {
     const user = await getSessionUser(c);
     if (!user) return c.redirect("/login");
@@ -571,7 +574,7 @@ app.get("/admin/edit", async (c) => {
 });
 
 app.post("/admin/update", async (c) => {
-    const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const p = await getProduct(body.id as string); if (p) { const updated: Product = { ...p, name: body.name as string, price: Number(body.price), description: body.desc as string, stock: p.type === 'manual' ? (body.data as string).split("\n").map(s=>s.trim()).filter(Boolean) : [], apiUrl: p.type === 'api' ? (body.data as string).trim() : undefined, sharedData: p.type === 'shared' ? (body.data as string).trim() : undefined, imageUrl: body.imageUrl as string, originalPrice: body.originalPrice ? Number(body.originalPrice) : undefined }; await kv.set(["products", p.id], updated); } return c.redirect("/admin");
+    const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const p = await getProduct(body.id as string); if (p) { const updated: Product = { ...p, name: body.name as string, price: Number(body.price), description: body.desc as string, stock: p.type === 'manual' ? (body.data as string).split("\n").map(s=>s.trim()).filter(Boolean) : [], apiUrl: p.type === 'api' ? (body.data as string).trim() : undefined, sharedData: p.type === 'shared' ? (body.data as string).trim() : undefined, imageUrl: body.imageUrl as string, originalPrice: p.originalPrice ? Number(body.originalPrice) : undefined }; await kv.set(["products", p.id], updated); } return c.redirect("/admin");
 });
 
 Deno.serve(app.fetch);
