@@ -1,6 +1,7 @@
 import { Hono } from "jsr:@hono/hono";
 import { getCookie, setCookie, deleteCookie } from "jsr:@hono/hono/cookie";
-import { kv, User, Product, Transaction, GlobalSale, getUser, updateUser, getProduct, addHistory, isKeySold, markKeyAsSold, getConfig, setConfig, createVoucher, getVoucher, markVoucherUsed, addGlobalSale, processRefund, save2DResult, placeBet, TwoDBet, process2DWinnings, hashPassword, createSession, getSession, deleteSession } from "./db.ts";
+// 🔑 ADDED get2DHistory
+import { kv, User, Product, Transaction, GlobalSale, getUser, updateUser, getProduct, addHistory, isKeySold, markKeyAsSold, getConfig, setConfig, createVoucher, getVoucher, markVoucherUsed, addGlobalSale, processRefund, save2DResult, placeBet, TwoDBet, process2DWinnings, hashPassword, createSession, getSession, deleteSession, get2DHistory } from "./db.ts";
 import { Layout, AuthForm, ProductCard, HistoryTable, MaintenancePage, ProfilePage, TransferPage, AdminUserTable, AdminSalesTable, ImageSlider, TwoDPage } from "./ui.ts";
 
 const app = new Hono();
@@ -40,7 +41,7 @@ async function getApiAvailableStock(p: Product): Promise<number | string> {
             now.setHours(0,0,0,0);
             if (expDate < now) continue;
             if (item.android_id_1 && item.android_id_1.trim() !== "" && item.android_id_2 && item.android_id_2.trim() !== "") continue;
-            if (await isKeySold(item.key)) continue; 
+            if (await isKeySold(item.key)) continue;
             count++;
         }
         return count;
@@ -49,36 +50,36 @@ async function getApiAvailableStock(p: Product): Promise<number | string> {
 
 // --- 2. SECURE SESSION CHECK ---
 async function getSessionUser(c: any) {
-  // Get Session ID from Cookie (NOT Username)
-  const sessionId = getCookie(c, "session_id");
-  if (!sessionId) return null;
-  
-  // Verify Session in Database
-  const username = await getSession(sessionId);
-  if (!username) return null;
+    // Get Session ID from Cookie (NOT Username)
+    const sessionId = getCookie(c, "session_id");
+    if (!sessionId) return null;
+    
+    // Verify Session in Database
+    const username = await getSession(sessionId);
+    if (!username) return null;
 
-  return await getUser(username);
+    return await getUser(username);
 }
 
 // --- APP ROUTES ---
 
 app.get("/", async (c) => {
-  const user = await getSessionUser(c);
-  const config = await getConfig();
-  if (config.maintenance && (!user || !user.isAdmin)) return c.html(MaintenancePage());
-  if (!user) return c.redirect("/login");
-  if(user.isBlocked) return c.redirect("/logout");
-  const iter = kv.list<Product>({ prefix: ["products"] });
-  let productsHtml = "";
-  for await (const entry of iter) { productsHtml += ProductCard(entry.value); }
-  return c.html(Layout("Shop", `
-    ${config.maintenance ? '<div class="bg-red-600 text-white text-center py-1 mb-4 rounded font-bold">⚠️ Maintenance Mode Active (Only Admin can see this)</div>' : ''}
-    ${ImageSlider(config.sliderImages)}
-    <div class="flex flex-col md:flex-row justify-end items-center mb-6 gap-4">
-        <div class="relative w-full md:w-64"><input type="text" id="searchInput" onkeyup="filterProducts()" placeholder="Search products..." class="w-full bg-slate-800 border border-slate-700 text-white px-4 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none pl-10"><div class="absolute left-3 top-2.5 text-slate-400">🔍</div></div>
-    </div>
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">${productsHtml || '<p class="text-slate-500 col-span-full text-center">No products available yet.</p>'}</div>
-  `, user, config.banner));
+    const user = await getSessionUser(c);
+    const config = await getConfig();
+    if (config.maintenance && (!user || !user.isAdmin)) return c.html(MaintenancePage());
+    if (!user) return c.redirect("/login");
+    if(user.isBlocked) return c.redirect("/logout");
+    const iter = kv.list<Product>({ prefix: ["products"] });
+    let productsHtml = "";
+    for await (const entry of iter) { productsHtml += ProductCard(entry.value); }
+    return c.html(Layout("Shop", `
+        ${config.maintenance ? '<div class="bg-red-600 text-white text-center py-1 mb-4 rounded font-bold">⚠️ Maintenance Mode Active (Only Admin can see this)</div>' : ''}
+        ${ImageSlider(config.sliderImages)}
+        <div class="flex flex-col md:flex-row justify-end items-center mb-6 gap-4">
+            <div class="relative w-full md:w-64"><input type="text" id="searchInput" onkeyup="filterProducts()" placeholder="Search products..." class="w-full bg-slate-800 border border-slate-700 text-white px-4 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none pl-10"><div class="absolute left-3 top-2.5 text-slate-400">🔍</div></div>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">${productsHtml || '<p class="text-slate-500 col-span-full text-center">No products available yet.</p>'}</div>
+    `, user, config.banner));
 });
 
 app.get("/2d", async (c) => {
@@ -94,7 +95,7 @@ app.get("/2d", async (c) => {
 app.post("/2d/bet", async (c) => {
     const user = await getSessionUser(c);
     if (!user) return c.json({ success: false, message: "Unauthorized" });
-    const body = await c.req.json(); 
+    const body = await c.req.json();
     const amount = Number(body.amount);
     const type = body.betType as string;
     let rawInput = (body.number as string || "").trim();
@@ -116,22 +117,22 @@ app.post("/2d/bet", async (c) => {
 
     // --- Number Expansion Logic ---
     let numbersToBet: string[] = [];
-    if (type === 'double') { 
-        for(let i=0; i<10; i++) numbersToBet.push(`${i}${i}`); 
-    } 
-    else if (type === 'head') { 
-        if(!/^\d$/.test(rawInput)) return c.json({ success: false, message: "Invalid Head input (0-9)" }); 
-        for(let i=0; i<10; i++) numbersToBet.push(`${rawInput}${i}`); 
-    } 
-    else if (type === 'tail') { 
-        if(!/^\d$/.test(rawInput)) return c.json({ success: false, message: "Invalid Tail input (0-9)" }); 
-        for(let i=0; i<10; i++) numbersToBet.push(`${i}${rawInput}`); 
-    } 
+    if (type === 'double') {
+        for(let i=0; i<10; i++) numbersToBet.push(`${i}${i}`);
+    }
+    else if (type === 'head') {
+        if(!/^\d$/.test(rawInput)) return c.json({ success: false, message: "Invalid Head input (0-9)" });
+        for(let i=0; i<10; i++) numbersToBet.push(`${rawInput}${i}`);
+    }
+    else if (type === 'tail') {
+        if(!/^\d$/.test(rawInput)) return c.json({ success: false, message: "Invalid Tail input (0-9)" });
+        for(let i=0; i<10; i++) numbersToBet.push(`${i}${rawInput}`);
+    }
     else {
         if(!/^\d{2}$/.test(rawInput)) return c.json({ success: false, message: "Invalid Number (00-99)" });
         numbersToBet.push(rawInput);
-        if (type === 'r') { 
-            const rev = rawInput.split('').reverse().join(''); 
+        if (type === 'r') {
+            const rev = rawInput.split('').reverse().join('');
             if (rev !== rawInput) numbersToBet.push(rev); // R logic
         }
     }
@@ -158,20 +159,29 @@ app.get("/api/2d-proxy", async (c) => {
         const res = await fetch("https://api.thaistock2d.com/live");
         const data = await res.json();
         if (!data.live || !data.live.twod) {
-             const historyRes = await fetch("https://api.thaistock2d.com/2d_result");
-             const historyData = await historyRes.json();
-             if (historyData && historyData.length > 0) {
-                 const last = historyData[0];
-                 await save2DResult({ date: last.date, time: last.open_time, set: last.set, value: last.value, twod: last.twod });
-                 return c.json({ live: { twod: last.twod, set: last.set, value: last.value, time: `Closed (${last.open_time})` } });
-             }
+            const historyRes = await fetch("https://api.thaistock2d.com/2d_result");
+            const historyData = await historyRes.json();
+            if (historyData && historyData.length > 0) {
+                const last = historyData[0];
+                await save2DResult({ date: last.date, time: last.open_time, set: last.set, value: last.value, twod: last.twod });
+                return c.json({ live: { twod: last.twod, set: last.set, value: last.value, time: `Closed (${last.open_time})` } });
+            }
         }
         return c.json(data);
     } catch { return c.json({ live: { twod: "--", set: "Error", value: "Error", time: "Offline" } }); }
 });
 
-app.get("/api/2d-history", async (c) => {
-    try { const res = await fetch("https://api.thaistock2d.com/2d_result"); const data = await res.json(); return c.json(data.slice(0, 20)); } catch { return c.json([]); }
+// 🔑 FIX: CHANGED TO FETCH FROM KV (Deno Database)
+app.get("/api/2d-history", async (c) => { 
+    try { 
+        const history = await get2DHistory(50); 
+        // Note: The frontend expects an array of history data.
+        return c.json(history); 
+    } catch (e) { 
+        console.error("KV history fetch error:", e);
+        // Return empty array if error to prevent frontend crash
+        return c.json([]); 
+    } 
 });
 
 app.get("/transfer", async (c) => {
@@ -233,6 +243,7 @@ app.post("/profile/avatar", async (c) => {
     await updateUser({ ...user, avatar: newAvatar });
     return c.html(ProfilePage({ ...user, avatar: newAvatar }, { active: config.bonusActive, amount: config.bonusAmount }, { type: 'success', text: 'Avatar Updated!' }));
 });
+
 // SECURE PASSWORD CHANGE
 app.post("/profile/password", async (c) => {
     const user = await getSessionUser(c);
@@ -240,8 +251,8 @@ app.post("/profile/password", async (c) => {
     const config = await getConfig();
     const body = await c.req.parseBody();
     const oldPassHash = await hashPassword(body.oldPassword as string);
-    if (user.password !== oldPassHash) { 
-        return c.html(ProfilePage(user, { active: config.bonusActive, amount: config.bonusAmount }, { type: 'error', text: 'Incorrect Old Password' })); 
+    if (user.password !== oldPassHash) {
+        return c.html(ProfilePage(user, { active: config.bonusActive, amount: config.bonusAmount }, { type: 'error', text: 'Incorrect Old Password' }));
     }
     const newPassHash = await hashPassword(body.newPassword as string);
     await updateUser({ ...user, password: newPassHash });
@@ -263,63 +274,63 @@ app.post("/redeem", async (c) => {
 });
 
 app.post("/buy", async (c) => {
-  const user = await getSessionUser(c);
-  if (!user) return c.json({ success: false, message: "Unauthorized" }, 401);
-  if (user.isBlocked) return c.json({ success: false, message: "Your account is blocked." });
-  const config = await getConfig();
-  if (config.maintenance && !user.isAdmin) return c.json({ success: false, message: "Maintenance Mode" });
-  const body = await c.req.json(); 
-  const id = body.id;
-  const product = await getProduct(id as string);
-  if (!product) return c.json({ success: false, message: "Product not found" });
-  if (user.balance < product.price) return c.json({ success: false, message: "Insufficient Balance" });
-  let finalDisplayCode = "";
-  let soldKeyIdentifier = null; 
-  if (product.type === "manual") {
-    if (!product.stock.length) return c.json({ success: false, message: "Out of Stock" });
-    finalDisplayCode = product.stock[0];
-    soldKeyIdentifier = finalDisplayCode;
-    const res = await kv.atomic().check(await kv.get(["products", product.id])).check(await kv.get(["users", user.username])).set(["products", product.id], { ...product, stock: product.stock.slice(1) }).set(["users", user.username], { ...user, balance: user.balance - product.price }).commit();
-    if(!res.ok) return c.json({ success: false, message: "Transaction Failed. Try Again." });
-  } else if(product.type === "shared") {
-      const currentSold = product.sharedSold || 0;
-      const capacity = product.sharedCapacity || 0;
-      if (currentSold >= capacity) return c.json({ success: false, message: "Out of Stock" });
-      finalDisplayCode = product.sharedData || "";
-      soldKeyIdentifier = null;
-      const res = await kv.atomic().check(await kv.get(["products", product.id])).check(await kv.get(["users", user.username])).set(["products", product.id], { ...product, sharedSold: currentSold + 1 }).set(["users", user.username], { ...user, balance: user.balance - product.price }).commit();
-      if(!res.ok) return c.json({ success: false, message: "Transaction Failed. Try Again." });
-  } else {
-    try {
-      const res = await fetch(product.apiUrl!);
-      const text = await res.text();
-      let json;
-      try {
-        json = JSON.parse(text);
-        const items = Array.isArray(json) ? json : [json];
-        let validItem = null;
-        for (const item of items) {
-            const expDate = new Date(item.expiration_date);
-            const now = new Date();
-            now.setHours(0,0,0,0); 
-            if (expDate < now) continue;
-            if (item.android_id_1 && item.android_id_1.trim() !== "" && item.android_id_2 && item.android_id_2.trim() !== "") continue;
-            if (await isKeySold(item.key)) continue;
-            validItem = item;
-            break;
-        }
-        if (!validItem) return c.json({ success: false, message: "Stock Unavailable from API" });
-        finalDisplayCode = `Key: ${validItem.key}\nExpires: ${validItem.expiration_date}`;
-        soldKeyIdentifier = validItem.key;
-      } catch (e) { finalDisplayCode = text; soldKeyIdentifier = text; }
-      const resKv = await kv.atomic().check(await kv.get(["users", user.username])).set(["users", user.username], { ...user, balance: user.balance - product.price }).commit();
-      if(!resKv.ok) throw new Error();
-      if (soldKeyIdentifier) await markKeyAsSold(soldKeyIdentifier, user.username);
-    } catch { return c.json({ success: false, message: "API Connection Error" }); }
-  }
-  const tx = await addHistory(user.username, "purchase", product.name, product.price, finalDisplayCode);
-  if(tx) await addGlobalSale(user.username, tx);
-  return c.json({ success: true, code: finalDisplayCode, rawCode: soldKeyIdentifier || finalDisplayCode, newBalance: user.balance - product.price });
+    const user = await getSessionUser(c);
+    if (!user) return c.json({ success: false, message: "Unauthorized" }, 401);
+    if (user.isBlocked) return c.json({ success: false, message: "Your account is blocked." });
+    const config = await getConfig();
+    if (config.maintenance && !user.isAdmin) return c.json({ success: false, message: "Maintenance Mode" });
+    const body = await c.req.json();
+    const id = body.id;
+    const product = await getProduct(id as string);
+    if (!product) return c.json({ success: false, message: "Product not found" });
+    if (user.balance < product.price) return c.json({ success: false, message: "Insufficient Balance" });
+    let finalDisplayCode = "";
+    let soldKeyIdentifier = null;
+    if (product.type === "manual") {
+        if (!product.stock.length) return c.json({ success: false, message: "Out of Stock" });
+        finalDisplayCode = product.stock[0];
+        soldKeyIdentifier = finalDisplayCode;
+        const res = await kv.atomic().check(await kv.get(["products", product.id])).check(await kv.get(["users", user.username])).set(["products", product.id], { ...product, stock: product.stock.slice(1) }).set(["users", user.username], { ...user, balance: user.balance - product.price }).commit();
+        if(!res.ok) return c.json({ success: false, message: "Transaction Failed. Try Again." });
+    } else if(product.type === "shared") {
+        const currentSold = product.sharedSold || 0;
+        const capacity = product.sharedCapacity || 0;
+        if (currentSold >= capacity) return c.json({ success: false, message: "Out of Stock" });
+        finalDisplayCode = product.sharedData || "";
+        soldKeyIdentifier = null;
+        const res = await kv.atomic().check(await kv.get(["products", product.id])).check(await kv.get(["users", user.username])).set(["products", product.id], { ...product, sharedSold: currentSold + 1 }).set(["users", user.username], { ...user, balance: user.balance - product.price }).commit();
+        if(!res.ok) return c.json({ success: false, message: "Transaction Failed. Try Again." });
+    } else {
+        try {
+            const res = await fetch(product.apiUrl!);
+            const text = await res.text();
+            let json;
+            try {
+                json = JSON.parse(text);
+                const items = Array.isArray(json) ? json : [json];
+                let validItem = null;
+                for (const item of items) {
+                    const expDate = new Date(item.expiration_date);
+                    const now = new Date();
+                    now.setHours(0,0,0,0);
+                    if (expDate < now) continue;
+                    if (item.android_id_1 && item.android_id_1.trim() !== "" && item.android_id_2 && item.android_id_2.trim() !== "") continue;
+                    if (await isKeySold(item.key)) continue;
+                    validItem = item;
+                    break;
+                }
+                if (!validItem) return c.json({ success: false, message: "Stock Unavailable from API" });
+                finalDisplayCode = `Key: ${validItem.key}\nExpires: ${validItem.expiration_date}`;
+                soldKeyIdentifier = validItem.key;
+            } catch (e) { finalDisplayCode = text; soldKeyIdentifier = text; }
+            const resKv = await kv.atomic().check(await kv.get(["users", user.username])).set(["users", user.username], { ...user, balance: user.balance - product.price }).commit();
+            if(!resKv.ok) throw new Error();
+            if (soldKeyIdentifier) await markKeyAsSold(soldKeyIdentifier, user.username);
+        } catch { return c.json({ success: false, message: "API Connection Error" }); }
+    }
+    const tx = await addHistory(user.username, "purchase", product.name, product.price, finalDisplayCode);
+    if(tx) await addGlobalSale(user.username, tx);
+    return c.json({ success: true, code: finalDisplayCode, rawCode: soldKeyIdentifier || finalDisplayCode, newBalance: user.balance - product.price });
 });
 
 app.get("/deposit", async (c) => {
@@ -335,85 +346,90 @@ app.get("/check-stock", async (c) => {
 });
 
 app.get("/history", async (c) => {
-  const user = await getSessionUser(c); if (!user) return c.redirect("/login"); const cursor = c.req.query("cursor"); const decodedCursor = cursor ? decodeCursor(cursor) : undefined; const filter = c.req.query("filter") || "all";
-  const iter = kv.list<Transaction>({ prefix: ["history", user.username] }, { limit: 50, reverse: true, cursor: decodedCursor }); const transactions: Transaction[] = []; let nextCursor = null; 
-  for await (const entry of iter) { const t = entry.value; if (filter === 'purchase' && (t.type === 'purchase' || t.type === 'transfer_sent')) transactions.push(t); else if (filter === 'topup' && (t.type === 'topup' || t.type === 'voucher' || t.type === 'bonus' || t.type === 'transfer_received' || t.type === 'refund')) transactions.push(t); else if (filter === 'all') transactions.push(t); nextCursor = entry.key; if(transactions.length >= 10) break; }
-  const encodedCursor = nextCursor ? encodeCursor(nextCursor) : null;
-  return c.html(Layout("History", `<div class="max-w-4xl mx-auto"><h1 class="text-3xl font-bold text-white mb-6">Transaction History</h1>${HistoryTable(transactions, encodedCursor, filter)}<div class="mt-4 text-center text-slate-500 text-sm"><a href="/" class="hover:text-blue-400">← Back to Shop</a></div></div>`, user));
+    const user = await getSessionUser(c); if (!user) return c.redirect("/login"); const cursor = c.req.query("cursor"); const decodedCursor = cursor ? decodeCursor(cursor) : undefined; const filter = c.req.query("filter") || "all";
+    const iter = kv.list<Transaction>({ prefix: ["history", user.username] }, { limit: 50, reverse: true, cursor: decodedCursor }); const transactions: Transaction[] = []; let nextCursor = null;
+    for await (const entry of iter) { const t = entry.value; if (filter === 'purchase' && (t.type === 'purchase' || t.type === 'transfer_sent')) transactions.push(t); else if (filter === 'topup' && (t.type === 'topup' || t.type === 'voucher' || t.type === 'bonus' || t.type === 'transfer_received' || t.type === 'refund')) transactions.push(t); else if (filter === 'all') transactions.push(t); nextCursor = entry.key; if(transactions.length >= 10) break; }
+    const encodedCursor = nextCursor ? encodeCursor(nextCursor) : null;
+    return c.html(Layout("History", `<div class="max-w-4xl mx-auto"><h1 class="text-3xl font-bold text-white mb-6">Transaction History</h1>${HistoryTable(transactions, encodedCursor, filter)}<div class="mt-4 text-center text-slate-500 text-sm"><a href="/" class="hover:text-blue-400">← Back to Shop</a></div></div>`, user));
 });
 
 app.get("/login", (c) => c.html(Layout("Login", AuthForm("Login"))));
 
-// SECURE LOGIN (WITH HASH CHECK)
+// 🔑 SECURE LOGIN (WITH HASH CHECK - FIXED)
 app.post("/login", async (c) => {
-  const body = await c.req.parseBody();
-  const user = await getUser(body.username as string);
-  const inputHash = await hashPassword(body.password as string);
-  const isMatch = user?.password === inputHash || user?.password === body.password;
+    const body = await c.req.parseBody();
+    const user = await getUser(body.username as string);
+    const inputHash = await hashPassword(body.password as string);
+    
+    // ⚠️ SECURITY FIX: Only compare stored hash with input hash. Removed the unsafe plain text comparison.
+    const isMatch = user?.password === inputHash;
 
-  if (user && isMatch) { 
-      if(user.isBlocked) return c.html(Layout("Login", AuthForm("Login", "Your account has been blocked.")));
-      if (user.password !== inputHash) { await updateUser({ ...user, password: inputHash }); }
-      const maxAge = body.remember === 'on' ? 60 * 60 * 24 * 15 : 86400;
-      const sessionId = await createSession(user.username, maxAge);
-      setCookie(c, "session_id", sessionId, { maxAge }); 
-      return c.redirect("/"); 
-  } 
-  return c.html(Layout("Login", AuthForm("Login", "Invalid username or password"))); 
+    if (user && isMatch) {
+        if(user.isBlocked) return c.html(Layout("Login", AuthForm("Login", "Your account has been blocked.")));
+        // If password was stored incorrectly (legacy), hash and update it.
+        if (user.password !== inputHash) { await updateUser({ ...user, password: inputHash }); }
+        
+        const maxAge = body.remember === 'on' ? 60 * 60 * 24 * 15 : 86400;
+        const sessionId = await createSession(user.username, maxAge);
+        setCookie(c, "session_id", sessionId, { maxAge });
+        return c.redirect("/");
+    }
+    return c.html(Layout("Login", AuthForm("Login", "Invalid username or password")));
 });
 
-app.get("/register", async (c) => { const config = await getConfig(); if (config.noReg) return c.html(Layout("Registration Closed", `<div class="text-center py-10 text-red-400 text-xl font-bold">⚠️ New registrations are currently disabled.</div>`)); return c.html(Layout("Register", AuthForm("Register"))); });
+app.get("/register", async (c) => {
+    const config = await getConfig();
+    if (config.noReg) return c.html(Layout("Registration Closed", `<div class="text-center py-10 text-red-400 text-xl font-bold">⚠️ New registrations are currently disabled.</div>`));
+    return c.html(Layout("Register", AuthForm("Register")));
+});
 
 // SECURE REGISTER (WITH HASHING)
 app.post("/register", async (c) => {
-  const config = await getConfig();
-  if (config.noReg) return c.html(Layout("Registration Closed", `<div class="text-center py-10 text-red-400 text-xl font-bold">⚠️ New registrations are currently disabled.</div>`));
-  const { username, password } = await c.req.parseBody();
-  const existing = await getUser(username as string);
-  if (existing) return c.html(Layout("Register", AuthForm("Register", "Username already taken")));
-  const list = kv.list({ prefix: ["users"] }, { limit: 1 });
-  const isFirst = (await list.next()).done;
-  const hashedPassword = await hashPassword(password as string);
-  const initialBalance = config.bonusActive ? config.bonusAmount : 0;
-  await kv.set(["users", username as string], { username, password: hashedPassword, balance: initialBalance, isAdmin: isFirst, hasClaimedBonus: config.bonusActive, createdAt: Date.now() } as User);
-  if(initialBalance > 0) { await addHistory(username as string, "bonus", "Welcome Bonus", initialBalance, "Registration Gift"); }
-  const sessionId = await createSession(username as string);
-  setCookie(c, "session_id", sessionId);
-  return c.redirect("/");
+    const config = await getConfig();
+    if (config.noReg) return c.html(Layout("Registration Closed", `<div class="text-center py-10 text-red-400 text-xl font-bold">⚠️ New registrations are currently disabled.</div>`));
+    const { username, password } = await c.req.parseBody();
+    const existing = await getUser(username as string);
+    if (existing) return c.html(Layout("Register", AuthForm("Register", "Username already taken")));
+    const list = kv.list({ prefix: ["users"] }, { limit: 1 });
+    const isFirst = (await list.next()).done;
+    const hashedPassword = await hashPassword(password as string);
+    const initialBalance = config.bonusActive ? config.bonusAmount : 0;
+    await kv.set(["users", username as string], { username, password: hashedPassword, balance: initialBalance, isAdmin: isFirst, hasClaimedBonus: config.bonusActive, createdAt: Date.now() } as User);
+    if(initialBalance > 0) { await addHistory(username as string, "bonus", "Welcome Bonus", initialBalance, "Registration Gift"); }
+    const sessionId = await createSession(username as string);
+    setCookie(c, "session_id", sessionId);
+    return c.redirect("/");
 });
 
-app.get("/logout", async (c) => { 
+app.get("/logout", async (c) => {
     const sid = getCookie(c, "session_id");
     if(sid) await deleteSession(sid);
-    deleteCookie(c, "session_id"); 
-    return c.redirect("/login"); 
+    deleteCookie(c, "session_id");
+    return c.redirect("/login");
 });
 
-app.get("/forgot", async (c) => { const config = await getConfig(); return c.html(Layout("Forgot Password", `<div class="max-w-md mx-auto glass p-8 rounded-2xl shadow-2xl mt-10 text-center"><div class="text-5xl mb-4">🤔</div><h2 class="text-2xl font-bold text-white mb-4">Forgot Password?</h2><p class="text-slate-400 mb-6">Please contact the Admin on Telegram to reset your password.</p><a href="https://t.me/${config.telegram}" target="_blank" class="inline-block bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded-xl transition shadow-lg mb-4">Contact Admin</a><div><a href="/login" class="text-slate-500 hover:text-white text-sm">Back to Login</a></div></div>`)); });
+app.get("/forgot", async (c) => {
+    const config = await getConfig();
+    return c.html(Layout("Forgot Password", `<div class="max-w-md mx-auto glass p-8 rounded-2xl shadow-2xl mt-10 text-center"><div class="text-5xl mb-4">🤔</div><h2 class="text-2xl font-bold text-white mb-4">Forgot Password?</h2><p class="text-slate-400 mb-6">Please contact the Admin on Telegram to reset your password.</p><a href="https://t.me/${config.telegram}" target="_blank" class="inline-block bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded-xl transition shadow-lg mb-4">Contact Admin</a><div><a href="/login" class="text-slate-500 hover:text-white text-sm">Back to Login</a></div></div>`));
+});
 
 // --- 🔑 ADMIN ROUTE FIX: Moved 2D Payout POST route outside of the GET /admin route ---
-
 app.post("/admin/2d-payout", async (c) => {
     const user = await getSessionUser(c);
-    
     // Admin Check
     if (!user || !user.isAdmin) {
         return c.html(Layout("403 Forbidden", `<div class="p-8 text-center"><h2 class="text-red-400 text-xl mb-4">Access Denied (403)</h2><p class="text-slate-300">Your account does not have admin privileges for this action.</p><a href="/" class="text-blue-400 mt-4 block">Go Home</a></div>`, user));
     }
-    
     const body = await c.req.parseBody();
     const winningNumber = (body.number as string).trim();
     const session = body.session as "Morning" | "Evening";
     const multiplier = Number(body.multiplier);
-
     // Validation
     if (!winningNumber || isNaN(multiplier) || multiplier <= 0 || !/^\d{2}$/.test(winningNumber)) {
         return c.html(Layout("Admin Error", `<div class="p-8 text-center text-red-400">Invalid Win Number or Multiplier.</div>`, user));
     }
-
     // Process Winnings
     const count = await process2DWinnings(winningNumber, session, multiplier);
-    
     return c.html(Layout("Payout Success", `
         <div class="max-w-md mx-auto glass p-8 rounded-2xl text-center mt-10">
             <div class="text-5xl mb-4">💸</div>
@@ -428,13 +444,11 @@ app.post("/admin/2d-payout", async (c) => {
     `, user));
 });
 
-
 // --- Admin GET Route Start ---
 app.get("/admin", async (c) => {
     try {
         const user = await getSessionUser(c);
         if (!user?.isAdmin) return c.redirect("/"); // Check once and redirect
-        
         const prodIter = kv.list<Product>({ prefix: ["products"] });
         let prodRows = "";
         for await (const { value: p } of prodIter) { const stockDisplay = p.type === 'manual' ? p.stock.length : p.type === 'shared' ? `Limit: ${p.sharedSold}/${p.sharedCapacity}` : 'Auto (API)'; prodRows += `<tr class="border-b border-slate-700 hover:bg-slate-800"><td class="p-3">${p.name}</td><td class="p-3">${p.price.toLocaleString()} Ks</td><td class="p-3">${stockDisplay}</td><td class="p-3 flex gap-2"><a href="/admin/edit?id=${p.id}" class="text-yellow-400 hover:underline">Edit</a><form action="/admin/delete" method="POST" onsubmit="return confirm('Are you sure?')" style="margin:0;"><input type="hidden" name="id" value="${p.id}"><button class="text-red-400 hover:underline">Delete</button></form></td></tr>`; }
@@ -471,7 +485,7 @@ app.get("/admin", async (c) => {
                         <div><label class="text-xs text-slate-400 uppercase">Slider Images (URLs)</label><input name="slider1" placeholder="Image 1 URL" value="${config.sliderImages[0] || ''}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm mb-1"><input name="slider2" placeholder="Image 2 URL" value="${config.sliderImages[1] || ''}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm mb-1"><input name="slider3" placeholder="Image 3 URL" value="${config.sliderImages[2] || ''}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm"></div>
                         <button class="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-2 rounded font-bold w-full">Update Settings</button>
                     </form>
-                </div>ဟ
+                </div>
                 <div class="glass p-6 rounded-xl border-l-4 border-purple-500"><h3 class="text-xl font-bold text-white mb-4">🎟️ Create Voucher</h3><form action="/admin/voucher" method="POST" class="space-y-3"><input name="code" placeholder="Voucher Code (e.g. HAPPY)" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white uppercase"><div class="flex gap-2"><input name="amount" type="number" placeholder="Amount" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><button class="bg-purple-600 px-4 rounded text-white font-bold">Create</button></div></form></div>
                 <div class="glass p-6 rounded-xl"><h3 class="text-xl font-bold text-white mb-4">💰 User Top Up</h3><form action="/admin/topup" method="POST" class="space-y-3"><input name="username" placeholder="Username" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><div class="flex gap-2"><input name="amount" type="number" placeholder="Amount" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><button class="bg-blue-600 px-4 rounded text-white font-bold">Add</button></div></form></div>
                 <div class="glass p-6 rounded-xl"><h3 class="text-lg font-bold text-white mb-2">👥 Users</h3>${AdminUserTable(userListHtml, encodedUserCursor)}</div>
@@ -486,16 +500,46 @@ app.get("/admin", async (c) => {
     } catch (e) { return c.html(Layout("Admin Error", `<div class="max-w-md mx-auto glass p-8 rounded-xl text-center mt-10"><h1 class="text-2xl font-bold text-red-400 mb-4">Admin Panel Error</h1><pre class="text-left bg-slate-900 p-4 rounded text-xs text-slate-400 overflow-x-auto mb-4">${e}</pre><a href="/" class="bg-slate-700 text-white px-6 py-2 rounded hover:bg-slate-600">Back Home</a></div>`, await getSessionUser(c))); }
 });
 
-app.post("/admin/refund", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); await processRefund(body.username as string, Number(body.date), body.id as string); return c.redirect("/admin"); });
-app.post("/admin/block", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const targetUsername = body.username as string; const shouldBlock = body.status === 'block'; const targetUser = await getUser(targetUsername); if(targetUser) { await updateUser({ ...targetUser, isBlocked: shouldBlock }); } return c.redirect("/admin"); });
+app.post("/admin/refund", async (c) => {
+    const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); await processRefund(body.username as string, Number(body.date), body.id as string); return c.redirect("/admin");
+});
+
+app.post("/admin/block", async (c) => {
+    const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const targetUsername = body.username as string; const shouldBlock = body.status === 'block'; const targetUser = await getUser(targetUsername); if(targetUser) { await updateUser({ ...targetUser, isBlocked: shouldBlock }); } return c.redirect("/admin");
+});
+
 // SECURE ADMIN PASSWORD RESET (HASHED)
-app.post("/admin/reset-password", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const targetUsername = body.username as string; const targetUser = await getUser(targetUsername); if(targetUser) { const newHash = await hashPassword("123456"); await updateUser({ ...targetUser, password: newHash }); } return c.redirect("/admin"); });
-app.post("/admin/config", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); await setConfig("banner", body.banner as string); await setConfig("telegram", body.telegram as string); await setConfig("payment", body.payment as string); await setConfig("maintenance", body.maintenance === "on"); await setConfig("no_reg", body.noReg === "on"); await setConfig("bonus_active", body.bonusActive === "on"); await setConfig("bonus_amount", Number(body.bonusAmount)); await setConfig("manual_2d", body.manual2d as string); const images = [body.slider1, body.slider2, body.slider3].filter(url => url && url.toString().trim() !== ""); await setConfig("slider_images", images); return c.redirect("/admin"); });
-app.post("/admin/voucher", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const code = (body.code as string).trim().toUpperCase(); const amount = Number(body.amount); await createVoucher(code, amount); return c.redirect("/admin"); });
-app.post("/admin/topup", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const targetUsername = (body.username as string).trim(); const amount = Number(body.amount); const targetUser = await getUser(targetUsername); if (!targetUser) return c.html(Layout("Admin Error", "User Not Found", user)); await kv.set(["users", targetUsername], { ...targetUser, balance: targetUser.balance + amount }); await addHistory(targetUsername, "topup", "Admin Topup", amount, `Added by Admin`); return c.redirect("/admin"); });
-app.post("/admin/add", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); let stock: string[] = []; let apiUrl: string | undefined = undefined; let sharedData: string | undefined = undefined; let sharedCapacity: number | undefined = undefined; if (body.type === 'manual') { stock = (body.data as string).split("\n").map(s => s.trim()).filter(Boolean); } else if (body.type === 'api') { apiUrl = (body.apiData as string).trim(); } else if (body.type === 'shared') { sharedData = (body.sharedData as string).trim(); sharedCapacity = Number(body.sharedCapacity); } const p: Product = { id: crypto.randomUUID(), name: body.name as string, description: body.desc as string, price: Number(body.price), type: body.type as any, stock, apiUrl, sharedData, sharedCapacity, sharedSold: 0, imageUrl: body.imageUrl as string, originalPrice: body.originalPrice ? Number(body.originalPrice) : undefined }; await kv.set(["products", p.id], p); return c.redirect("/admin"); });
-app.post("/admin/delete", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const { id } = await c.req.parseBody(); await kv.delete(["products", id as string]); return c.redirect("/admin"); });
-app.get("/admin/edit", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const id = c.req.query("id"); const p = await getProduct(id!); if (!p) return c.redirect("/admin"); return c.html(Layout("Edit", `<div class="max-w-lg mx-auto glass p-8 rounded-xl"><h2 class="text-2xl font-bold text-white mb-6">Edit Product</h2><form action="/admin/update" method="POST" class="space-y-4"><input type="hidden" name="id" value="${p.id}"><div><label class="text-slate-400 block mb-1">Name</label><input name="name" value="${p.name}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div><div><label class="text-slate-400 block mb-1">Price</label><input name="price" type="number" value="${p.price}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div><div><label class="text-slate-400 block mb-1">Original Price</label><input name="originalPrice" type="number" value="${p.originalPrice || ''}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div><div><label class="text-slate-400 block mb-1">Description</label><input name="desc" value="${p.description}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div><div><label class="text-slate-400 block mb-1">Image URL</label><input name="imageUrl" value="${p.imageUrl || ''}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div><div><label class="text-slate-400 block mb-1">Data</label><textarea name="data" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-32">${p.type === 'manual' ? p.stock.join("\n") : p.type === 'api' ? p.apiUrl : p.sharedData}</textarea><small class="text-slate-500">For Shared: Edit code here. Capacity resets only if re-created.</small></div><div class="flex gap-4 pt-4"><button class="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 rounded">Update</button><a href="/admin" class="flex-1 bg-slate-700 text-center py-2 rounded text-white">Cancel</a></div></form></div>`, user)); });
-app.post("/admin/update", async (c) => { const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const p = await getProduct(body.id as string); if (p) { const updated: Product = { ...p, name: body.name as string, price: Number(body.price), description: body.desc as string, stock: p.type === 'manual' ? (body.data as string).split("\n").map(s=>s.trim()).filter(Boolean) : [], apiUrl: p.type === 'api' ? (body.data as string).trim() : undefined, sharedData: p.type === 'shared' ? (body.data as string).trim() : undefined, imageUrl: body.imageUrl as string, originalPrice: body.originalPrice ? Number(body.originalPrice) : undefined }; await kv.set(["products", p.id], updated); } return c.redirect("/admin"); });
+app.post("/admin/reset-password", async (c) => {
+    const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const targetUsername = body.username as string; const targetUser = await getUser(targetUsername); if(targetUser) { const newHash = await hashPassword("123456"); await updateUser({ ...targetUser, password: newHash }); } return c.redirect("/admin");
+});
+
+app.post("/admin/config", async (c) => {
+    const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); await setConfig("banner", body.banner as string); await setConfig("telegram", body.telegram as string); await setConfig("payment", body.payment as string); await setConfig("maintenance", body.maintenance === "on"); await setConfig("no_reg", body.noReg === "on"); await setConfig("bonus_active", body.bonusActive === "on"); await setConfig("bonus_amount", Number(body.bonusAmount)); await setConfig("manual_2d", body.manual2d as string); const images = [body.slider1, body.slider2, body.slider3].filter(url => url && url.toString().trim() !== ""); await setConfig("slider_images", images); return c.redirect("/admin");
+});
+
+app.post("/admin/voucher", async (c) => {
+    const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const code = (body.code as string).trim().toUpperCase(); const amount = Number(body.amount); await createVoucher(code, amount); return c.redirect("/admin");
+});
+
+app.post("/admin/topup", async (c) => {
+    const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const targetUsername = (body.username as string).trim(); const amount = Number(body.amount); const targetUser = await getUser(targetUsername); if (!targetUser) return c.html(Layout("Admin Error", "User Not Found", user)); await kv.set(["users", targetUsername], { ...targetUser, balance: targetUser.balance + amount }); await addHistory(targetUsername, "topup", "Admin Topup", amount, `Added by Admin`); return c.redirect("/admin");
+});
+
+app.post("/admin/add", async (c) => {
+    const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); let stock: string[] = []; let apiUrl: string | undefined = undefined; let sharedData: string | undefined = undefined; let sharedCapacity: number | undefined = undefined; if (body.type === 'manual') { stock = (body.data as string).split("\n").map(s => s.trim()).filter(Boolean); } else if (body.type === 'api') { apiUrl = (body.apiData as string).trim(); } else if (body.type === 'shared') { sharedData = (body.sharedData as string).trim(); sharedCapacity = Number(body.sharedCapacity); } const p: Product = { id: crypto.randomUUID(), name: body.name as string, description: body.desc as string, price: Number(body.price), type: body.type as any, stock, apiUrl, sharedData, sharedCapacity, sharedSold: 0, imageUrl: body.imageUrl as string, originalPrice: body.originalPrice ? Number(body.originalPrice) : undefined }; await kv.set(["products", p.id], p); return c.redirect("/admin");
+});
+
+app.post("/admin/delete", async (c) => {
+    const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const { id } = await c.req.parseBody(); await kv.delete(["products", id as string]); return c.redirect("/admin");
+});
+
+app.get("/admin/edit", async (c) => {
+    const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const id = c.req.query("id"); const p = await getProduct(id!); if (!p) return c.redirect("/admin"); return c.html(Layout("Edit", `<div class="max-w-lg mx-auto glass p-8 rounded-xl"><h2 class="text-2xl font-bold text-white mb-6">Edit Product</h2><form action="/admin/update" method="POST" class="space-y-4"><input type="hidden" name="id" value="${p.id}"><div><label class="text-slate-400 block mb-1">Name</label><input name="name" value="${p.name}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div><div><label class="text-slate-400 block mb-1">Price</label><input name="price" type="number" value="${p.price}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div><div><label class="text-slate-400 block mb-1">Original Price</label><input name="originalPrice" type="number" value="${p.originalPrice || ''}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div><div><label class="text-slate-400 block mb-1">Description</label><input name="desc" value="${p.description}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div><div><label class="text-slate-400 block mb-1">Image URL</label><input name="imageUrl" value="${p.imageUrl || ''}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"></div><div><label class="text-slate-400 block mb-1">Data</label><textarea name="data" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-32">${p.type === 'manual' ? p.stock.join("\n") : p.type === 'api' ? p.apiUrl : p.sharedData}</textarea><small class="text-slate-500">For Shared: Edit code here. Capacity resets only if re-created.</small></div><div class="flex gap-4 pt-4"><button class="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 rounded">Update</button><a href="/admin" class="flex-1 bg-slate-700 text-center py-2 rounded text-white">Cancel</a></div></form></div>`, user));
+});
+
+app.post("/admin/update", async (c) => {
+    const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const p = await getProduct(body.id as string); if (p) { const updated: Product = { ...p, name: body.name as string, price: Number(body.price), description: body.desc as string, stock: p.type === 'manual' ? (body.data as string).split("\n").map(s=>s.trim()).filter(Boolean) : [], apiUrl: p.type === 'api' ? (body.data as string).trim() : undefined, sharedData: p.type === 'shared' ? (body.data as string).trim() : undefined, imageUrl: body.imageUrl as string, originalPrice: body.originalPrice ? Number(body.originalPrice) : undefined }; await kv.set(["products", p.id], updated); } return c.redirect("/admin");
+});
 
 Deno.serve(app.fetch);
+
