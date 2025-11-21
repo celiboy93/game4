@@ -46,7 +46,7 @@ export interface TwoDBet { id: string; username: string; number: string; amount:
 // 1. Password Hashing (SHA-256)
 export async function hashPassword(password: string) {
     const encoder = new TextEncoder();
-    const data = encoder.encode(password + "my-secret-salt-2025");
+    const data = encoder.encode(password + "my-secret-salt-2025"); // Salt adds extra security
     const hashBuffer = await crypto.subtle.digest("SHA-256", data);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     return hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
@@ -55,6 +55,7 @@ export async function hashPassword(password: string) {
 // 2. Session Management
 export async function createSession(username: string, maxAgeSeconds: number = 86400) {
     const sessionId = crypto.randomUUID();
+    // Store session in KV with expiration
     await kv.set(["sessions", sessionId], username, { expireIn: maxAgeSeconds * 1000 });
     return sessionId;
 }
@@ -72,11 +73,6 @@ export async function deleteSession(sessionId: string) {
 
 export async function getUser(username: string) {
   const res = await kv.get<User>(["users", username]);
-  // 🔑 FIX: Ensure user data is complete, otherwise it can crash layouts
-  if (res.value && !res.value.createdAt) {
-      // Safely fill missing fields if necessary
-      res.value.createdAt = Date.now();
-  }
   return res.value;
 }
 
@@ -111,50 +107,32 @@ export async function markKeyAsSold(key: string, username: string) {
   await kv.set(["sold_keys", key], { soldTo: username, date: Date.now() });
 }
 
-// 🔑 FIX: Use Nullish Coalescing (??) consistently to guarantee return types
 export async function getConfig() {
-    // Wrap potential KV read in try-catch to prevent crash if KV is unstable
-    try {
-        const banner = await kv.get<string>(["config", "banner"]);
-        const payment = await kv.get<string>(["config", "payment"]);
-        const telegram = await kv.get<string>(["config", "telegram"]);
-        const maintenance = await kv.get<boolean>(["config", "maintenance"]);
-        const noReg = await kv.get<boolean>(["config", "no_reg"]);
-        const bonusActive = await kv.get<boolean>(["config", "bonus_active"]);
-        const bonusAmount = await kv.get<number>(["config", "bonus_amount"]);
-        const sliderImages = await kv.get<string[]>(["config", "slider_images"]);
-        const manual2d = await kv.get<string>(["config", "manual_2d"]);
-        
-        return {
-            banner: banner.value || "Welcome to GameStore!",
-            payment: payment.value || "Kpay: 09xxxxxx\nWave: 09xxxxxx",
-            telegram: telegram.value || "username",
-            maintenance: maintenance.value ?? false,
-            noReg: noReg.value ?? false,
-            bonusActive: bonusActive.value ?? false,
-            bonusAmount: bonusAmount.value ?? 0, // Ensure this is a number
-            manual2d: manual2d.value || "",
-            sliderImages: sliderImages.value || [
-                "https://img.freepik.com/free-vector/gaming-banner-template-with-geometric-shapes_23-2148795457.jpg",
-                "https://t3.ftcdn.net/jpg/02/85/90/44/360_F_285904463_52tKiXp59JoHuAAxHRn3jKk8qI2o56q7.jpg",
-                "https://img.freepik.com/free-vector/horizontal-banner-template-esports-gaming_23-2148528707.jpg"
-            ]
-        };
-    } catch (e) {
-        console.error("KV getConfig initialization failed:", e);
-        // Return guaranteed default values on total failure
-        return {
-            banner: "KV ERROR: System check required.",
-            payment: "N/A",
-            telegram: "admin",
-            maintenance: true, // Force maintenance mode if config fails
-            noReg: true,
-            bonusActive: false,
-            bonusAmount: 0,
-            manual2d: "",
-            sliderImages: []
-        };
-    }
+    const banner = await kv.get<string>(["config", "banner"]);
+    const payment = await kv.get<string>(["config", "payment"]);
+    const telegram = await kv.get<string>(["config", "telegram"]);
+    const maintenance = await kv.get<boolean>(["config", "maintenance"]);
+    const noReg = await kv.get<boolean>(["config", "no_reg"]);
+    const bonusActive = await kv.get<boolean>(["config", "bonus_active"]);
+    const bonusAmount = await kv.get<number>(["config", "bonus_amount"]);
+    const sliderImages = await kv.get<string[]>(["config", "slider_images"]);
+    const manual2d = await kv.get<string>(["config", "manual_2d"]);
+    
+    return {
+        banner: banner.value || "Welcome to GameStore!",
+        payment: payment.value || "Kpay: 09xxxxxx\nWave: 09xxxxxx",
+        telegram: telegram.value || "username",
+        maintenance: maintenance.value ?? false,
+        noReg: noReg.value ?? false,
+        bonusActive: bonusActive.value ?? false,
+        bonusAmount: bonusAmount.value || 0,
+        manual2d: manual2d.value || "",
+        sliderImages: sliderImages.value || [
+            "https://img.freepik.com/free-vector/gaming-banner-template-with-geometric-shapes_23-2148795457.jpg",
+            "https://t3.ftcdn.net/jpg/02/85/90/44/360_F_285904463_52tKiXp59JoHuAAxHRn3jKk8qI2o56q7.jpg",
+            "https://img.freepik.com/free-vector/horizontal-banner-template-esports-gaming_23-2148528707.jpg"
+        ]
+    };
 }
 
 export async function setConfig(key: string, value: any) {
@@ -198,23 +176,6 @@ export async function save2DResult(res: TwoDResult) {
     await kv.set(["2d_results", res.date, res.time], res);
 }
 
-export async function get2DHistory(limit: number = 20): Promise<TwoDResult[]> {
-    const results: TwoDResult[] = [];
-    
-    // We list all entries that start with the prefix ["2d_results"] 
-    // and reverse the order to get the newest results first.
-    const iter = kv.list<TwoDResult>({ prefix: ["2d_results"] }, { 
-        limit: limit, 
-        reverse: true 
-    });
-
-    for await (const entry of iter) {
-        results.push(entry.value);
-    }
-    
-    return results;
-}
-
 export async function placeBet(username: string, number: string, amount: number, session: "Morning" | "Evening") {
     const id = crypto.randomUUID();
     const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Yangon" });
@@ -251,4 +212,3 @@ export async function process2DWinnings(winningNumber: string, session: "Morning
     }
     return winCount;
 }
-
