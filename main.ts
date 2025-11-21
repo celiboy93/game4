@@ -1,6 +1,6 @@
 import { Hono } from "jsr:@hono/hono";
 import { getCookie, setCookie, deleteCookie } from "jsr:@hono/hono/cookie";
-// 🔑 FIX: Add get2DHistory to the import list
+// 🔑 Add get2DHistory
 import { kv, User, Product, Transaction, GlobalSale, getUser, updateUser, getProduct, addHistory, isKeySold, markKeyAsSold, getConfig, setConfig, createVoucher, getVoucher, markVoucherUsed, addGlobalSale, processRefund, save2DResult, placeBet, TwoDBet, process2DWinnings, hashPassword, createSession, getSession, deleteSession, get2DHistory } from "./db.ts";
 import { Layout, AuthForm, ProductCard, HistoryTable, MaintenancePage, ProfilePage, TransferPage, AdminUserTable, AdminSalesTable, ImageSlider, TwoDPage } from "./ui.ts";
 
@@ -64,22 +64,47 @@ async function getSessionUser(c: any) {
 // --- APP ROUTES ---
 
 app.get("/", async (c) => {
-    const user = await getSessionUser(c);
-    const config = await getConfig();
-    if (config.maintenance && (!user || !user.isAdmin)) return c.html(MaintenancePage());
-    if (!user) return c.redirect("/login");
-    if(user.isBlocked) return c.redirect("/logout");
-    const iter = kv.list<Product>({ prefix: ["products"] });
-    let productsHtml = "";
-    for await (const entry of iter) { productsHtml += ProductCard(entry.value); }
-    return c.html(Layout("Shop", `
-        ${config.maintenance ? '<div class="bg-red-600 text-white text-center py-1 mb-4 rounded font-bold">⚠️ Maintenance Mode Active (Only Admin can see this)</div>' : ''}
-        ${ImageSlider(config.sliderImages)}
-        <div class="flex flex-col md:flex-row justify-end items-center mb-6 gap-4">
-            <div class="relative w-full md:w-64"><input type="text" id="searchInput" onkeyup="filterProducts()" placeholder="Search products..." class="w-full bg-slate-800 border border-slate-700 text-white px-4 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none pl-10"><div class="absolute left-3 top-2.5 text-slate-400">🔍</div></div>
-        </div>
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">${productsHtml || '<p class="text-slate-500 col-span-full text-center">No products available yet.</p>'}</div>
-    `, user, config.banner));
+    try {
+        const user = await getSessionUser(c);
+        const config = await getConfig();
+        if (config.maintenance && (!user || !user.isAdmin)) return c.html(MaintenancePage());
+        if (!user) return c.redirect("/login");
+        if(user.isBlocked) return c.redirect("/logout");
+
+        const iter = kv.list<Product>({ prefix: ["products"] });
+        let productsHtml = "";
+        
+        // 🔑 FIX: Add robust error handling for reading KV data
+        for await (const entry of iter) {
+            const p = entry.value;
+            // Validate essential fields before calling ProductCard
+            if (!p || !p.id || !p.name || typeof p.price !== 'number' || !p.type) {
+                console.warn(`Skipping invalid product entry with key: ${entry.key}`);
+                continue; // Skip this corrupted entry
+            }
+            try {
+                productsHtml += ProductCard(p);
+            } catch (e) {
+                console.error(`Error rendering ProductCard for ${p.id}:`, e);
+                // If rendering fails, still proceed with other products
+            }
+        }
+        
+        return c.html(Layout("Shop", `
+            ${config.maintenance ? '<div class="bg-red-600 text-white text-center py-1 mb-4 rounded font-bold">⚠️ Maintenance Mode Active (Only Admin can see this)</div>' : ''}
+            ${ImageSlider(config.sliderImages)}
+            <div class="flex flex-col md:flex-row justify-end items-center mb-6 gap-4">
+                <div class="relative w-full md:w-64"><input type="text" id="searchInput" onkeyup="filterProducts()" placeholder="Search products..." class="w-full bg-slate-800 border border-slate-700 text-white px-4 py-2 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none pl-10"><div class="absolute left-3 top-2.5 text-slate-400">🔍</div></div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">${productsHtml || '<p class="text-slate-500 col-span-full text-center">No products available yet.</p>'}</div>
+        `, user, config.banner));
+        
+    } catch (e) {
+        // 🔑 FIX: Catch any unexpected errors during initial load and report them
+        console.error("Critical error in Homepage route:", e);
+        // You can return a custom error page or re-throw the error
+        return c.text("Internal Server Error: Failed to load products. Check server logs.", 500);
+    }
 });
 
 app.get("/2d", async (c) => {
