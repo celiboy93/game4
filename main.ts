@@ -1,6 +1,6 @@
 import { Hono } from "jsr:@hono/hono";
 import { getCookie, setCookie, deleteCookie } from "jsr:@hono/hono/cookie";
-// 🔑 All imports, including the new get2DHistory
+// 🔑 FIX: MUST ensure get2DHistory is imported
 import { kv, User, Product, Transaction, GlobalSale, getUser, updateUser, getProduct, addHistory, isKeySold, markKeyAsSold, getConfig, setConfig, createVoucher, getVoucher, markVoucherUsed, addGlobalSale, processRefund, save2DResult, placeBet, TwoDBet, process2DWinnings, hashPassword, createSession, getSession, deleteSession, get2DHistory } from "./db.ts";
 import { Layout, AuthForm, ProductCard, HistoryTable, MaintenancePage, ProfilePage, TransferPage, AdminUserTable, AdminSalesTable, ImageSlider, TwoDPage } from "./ui.ts";
 
@@ -78,7 +78,12 @@ app.get("/", async (c) => {
         user = await getSessionUser(c);
         config = await getConfig();
 
-        if (config.maintenance && (!user || !user.isAdmin)) return c.html(MaintenancePage());
+        // If config loading failed and forced maintenance mode, redirect
+        if (config.maintenance && (!user || !user.isAdmin)) {
+            // If the error occurred before login check, it means we can't show the page.
+            return c.html(MaintenancePage());
+        }
+
         if (!user) return c.redirect("/login");
         if(user.isBlocked) return c.redirect("/logout");
 
@@ -110,11 +115,12 @@ app.get("/", async (c) => {
         `, user, config.banner));
         
     } catch (e) {
-        // 3. Catch all critical errors and redirect to login if possible
+        // 3. Catch all critical errors and force redirection to login
         console.error("CRITICAL ERROR: Homepage route crashed the server.", e);
-        // This attempts a clean redirect, clearing the session just in case it was the root cause.
         deleteCookie(c, "session_id");
-        return c.redirect("/login");
+        
+        // Attempt to redirect to login, which is the safest external route.
+        return c.redirect("/login"); 
     }
 });
 
@@ -200,7 +206,7 @@ app.get("/api/2d-proxy", async (c) => {
             if (historyData && historyData.length > 0) {
                 const last = historyData[0];
                 await save2DResult({ date: last.date, time: last.open_time, set: last.set, value: last.value, twod: last.twod });
-                return c.json({ live: { twod: last.twod, set: last.set, value: last.value, time: `Closed (${last.open_time})` } });
+                return c.json({ live: { twod: last.twod, set: last.set, value: last.value, time: `Closed (${last.open_time})` });
             }
         }
         return c.json(data);
@@ -574,7 +580,7 @@ app.get("/admin/edit", async (c) => {
 });
 
 app.post("/admin/update", async (c) => {
-    const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const p = await getProduct(body.id as string); if (p) { const updated: Product = { ...p, name: body.name as string, price: Number(body.price), description: body.desc as string, stock: p.type === 'manual' ? (body.data as string).split("\n").map(s=>s.trim()).filter(Boolean) : [], apiUrl: p.type === 'api' ? (body.data as string).trim() : undefined, sharedData: p.type === 'shared' ? (body.data as string).trim() : undefined, imageUrl: body.imageUrl as string, originalPrice: p.originalPrice ? Number(body.originalPrice) : undefined }; await kv.set(["products", p.id], updated); } return c.redirect("/admin");
+    const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); const p = await getProduct(body.id as string); if (p) { const updated: Product = { ...p, name: body.name as string, price: Number(body.price), description: body.desc as string, stock: p.type === 'manual' ? (body.data as string).split("\n").map(s=>s.trim()).filter(Boolean) : [], apiUrl: p.type === 'api' ? (body.data as string).trim() : undefined, sharedData: p.type === 'shared' ? (body.data as string).trim() : undefined, imageUrl: body.imageUrl as string, originalPrice: p.originalPrice ? Number(p.originalPrice) : undefined }; await kv.set(["products", p.id], updated); } return c.redirect("/admin");
 });
 
 Deno.serve(app.fetch);
