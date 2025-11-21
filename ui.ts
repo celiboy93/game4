@@ -22,6 +22,15 @@ function toggleProductInputs() {
     else if (type === 'shared') document.getElementById('input-shared').style.display = 'block'; 
 } 
 
+// --- 🔑 NEW: Function to display error modal (Moved here for accessibility) ---
+function showErrorModal(message) {
+    document.getElementById('errorMessage').innerText = message || "An unknown error occurred.";
+    const btnContainer = document.getElementById('errorBtnContainer');
+    btnContainer.innerHTML = \`<button onclick="closeModals()" class="w-full bg-slate-700 text-white font-bold py-3 rounded-xl transition">Close</button>\`; 
+    document.getElementById('errorModal').classList.remove('hidden');
+}
+
+
 // --- 2D BETTING SPINNER & FETCH LOGIC --- 
 function handle2DBet(e) { 
     e.preventDefault(); 
@@ -57,13 +66,6 @@ function handle2DBet(e) {
     return false; 
 } 
 
-// --- 🔑 NEW: Function to display error modal ---
-function showErrorModal(message) {
-    document.getElementById('errorMessage').innerText = message || "An unknown error occurred.";
-    const btnContainer = document.getElementById('errorBtnContainer');
-    btnContainer.innerHTML = \`<button onclick="closeModals()" class="w-full bg-slate-700 text-white font-bold py-3 rounded-xl transition">Close</button>\`; 
-    document.getElementById('errorModal').classList.remove('hidden');
-}
 
 // --- 🔑 NEW: Function to Fetch and Render 2D History from KV ---
 async function load2DHistory() {
@@ -372,13 +374,22 @@ export const ImageSlider = (images: string[]) => `<div class="relative w-full h-
 export const AuthForm = (type: "Login" | "Register", error?: string) => `<div class="max-w-md mx-auto glass p-8 rounded-2xl shadow-2xl mt-10"><h2 class="text-3xl font-bold text-center mb-6 text-white">${type}</h2>${error ? `<div class="bg-red-500/20 border border-red-500 text-red-200 p-3 rounded mb-4 text-center">${error}</div>` : ''}<form method="POST" class="space-y-4"><div><label class="block text-sm font-medium text-slate-400 mb-1">Username</label><input type="text" name="username" required class="w-full bg-slate-800 border border-slate-600 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 outline-none text-white"></div><div><label class="block text-sm font-medium text-slate-400 mb-1">Password</label><input type="password" name="password" required class="w-full bg-slate-800 border border-slate-600 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 outline-none text-white"></div>${type === 'Login' ? `<div class="flex justify-between items-center"><label class="flex items-center gap-2 text-slate-400 text-sm cursor-pointer"><input type="checkbox" name="remember" class="rounded bg-slate-800 border-slate-600 text-blue-600 focus:ring-blue-500">Remember me</label><a href="/forgot" class="text-sm text-blue-400 hover:text-blue-300">Forgot Password?</a></div>` : ''}<button class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-lg transition shadow-lg shadow-blue-500/30">${type}</button></form><p class="mt-4 text-center text-slate-400 text-sm">${type === 'Login' ? 'Don\'t have an account? <a href="/register" class="text-blue-400">Register</a>' : 'Already have an account? <a href="/login" class="text-blue-400">Login</a>'}</p></div>`; 
 export const MaintenancePage = () => `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Maintenance</title><script src="https://cdn.tailwindcss.com"></script><style>body { font-family: sans-serif; background-color: #0f172a; color: #e2e8f0; }</style></head><body class="h-screen flex flex-col items-center justify-center p-4 text-center"><div class="bg-slate-800 p-8 rounded-2xl border border-slate-700 shadow-2xl max-w-md w-full"><div class="text-6xl mb-4">🚧</div><h1 class="text-3xl font-bold text-white mb-2">Under Maintenance</h1><p class="text-slate-400 mb-6">We are currently updating our server. Please check back later.</p><a href="/login" class="text-sm text-slate-600 hover:text-slate-400">Admin Login</a></div></body></html>`; 
 export const ProductCard = (p: Product) => { 
+    // 🔑 FIX 1: Safely handle missing price values
+    const price = p.price || 0;
+    const originalPrice = p.originalPrice || 0; 
+    
     const isManual = p.type === 'manual'; 
     const manualStock = p.stock ? p.stock.length : 0; 
     const stockDisplay = isManual ? `Stock: ${manualStock}` : p.type === 'shared' ? `Limit: ${Math.max(0, (p.sharedCapacity||0)-(p.sharedSold||0))}/${p.sharedCapacity}` : `Stock: <span class="api-stock-loader animate-pulse" data-id="${p.id}">...</span>`; 
     const isDisabled = (!isManual && p.type !== 'api' && p.type !== 'shared') ? true : (isManual && manualStock === 0) || (p.type === 'shared' && (p.sharedCapacity||0) <= (p.sharedSold||0)); 
     const imageHtml = p.imageUrl ? `<img src="${p.imageUrl}" class="w-24 h-24 rounded-lg object-cover border border-slate-700 shadow-md" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="w-24 h-24 rounded-lg bg-slate-800 items-center justify-center text-3xl hidden border border-slate-700 shadow-md">🎮</div>` : `<div class="w-24 h-24 rounded-lg bg-slate-800 flex items-center justify-center text-3xl border border-slate-700 shadow-md">🎮</div>`; 
-    const priceDisplay = (p.originalPrice && p.originalPrice > p.price) ? `<span class="text-xs text-slate-500 line-through mr-1 font-medium">${p.originalPrice.toLocaleString()} Ks</span><span class="text-xl font-bold text-blue-400">${p.price.toLocaleString()} Ks</span>` : `<div class="text-xl font-bold text-blue-400">${p.price.toLocaleString()} Ks</div>`; 
-    return `<div class="product-card glass rounded-xl overflow-hidden hover:shadow-2xl hover:shadow-blue-500/10 transition transform hover:-translate-y-1 duration-300 p-4" data-name="${p.name}"><div class="flex gap-4"><div class="flex-shrink-0">${imageHtml}</div><div class="flex-grow flex flex-col justify-between"><div><div class="flex justify-between items-start"><h3 class="text-lg font-bold text-white leading-tight">${p.name}</h3><span id="badge-${p.id}" class="text-[10px] px-2 py-1 rounded whitespace-nowrap ${!isDisabled ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">${stockDisplay}</span></div><p class="text-slate-400 text-xs mt-1 line-clamp-2">${p.description}</p></div><div class="mt-2"><div class="mb-2 flex items-baseline">${priceDisplay}</div><button id="btn-${p.id}" ${isDisabled ? 'disabled' : `onclick="confirmBuy('${p.id}', '${p.name}', '${p.price.toLocaleString()}')"`} class="w-full text-sm ${!isDisabled ? 'bg-blue-600 hover:bg-blue-500' : 'bg-slate-700 cursor-not-allowed'} text-white font-bold py-2 rounded-lg transition flex justify-center items-center gap-2">${isDisabled ? 'Out of Stock' : '⚡ Buy Now'}</button></div></div></div></div>`; 
+    
+    // 🔑 FIX 2: Use the safely derived price variables for toLocaleString()
+    const priceDisplay = (originalPrice && originalPrice > price) ? 
+        `<span class="text-xs text-slate-500 line-through mr-1 font-medium">${originalPrice.toLocaleString()} Ks</span><span class="text-xl font-bold text-blue-400">${price.toLocaleString()} Ks</span>` 
+        : `<div class="text-xl font-bold text-blue-400">${price.toLocaleString()} Ks</div>`; 
+        
+    return `<div class="product-card glass rounded-xl overflow-hidden hover:shadow-2xl hover:shadow-blue-500/10 transition transform hover:-translate-y-1 duration-300 p-4" data-name="${p.name}"><div class="flex gap-4"><div class="flex-shrink-0">${imageHtml}</div><div class="flex-grow flex flex-col justify-between"><div><div class="flex justify-between items-start"><h3 class="text-lg font-bold text-white leading-tight">${p.name}</h3><span id="badge-${p.id}" class="text-[10px] px-2 py-1 rounded whitespace-nowrap ${!isDisabled ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">${stockDisplay}</span></div><p class="text-slate-400 text-xs mt-1 line-clamp-2">${p.description}</p></div><div class="mt-2"><div class="mb-2 flex items-baseline">${priceDisplay}</div><button id="btn-${p.id}" ${isDisabled ? 'disabled' : `onclick="confirmBuy('${p.id}', '${p.name}', '${price.toLocaleString()}')"`} class="w-full text-sm ${!isDisabled ? 'bg-blue-600 hover:bg-blue-500' : 'bg-slate-700 cursor-not-allowed'} text-white font-bold py-2 rounded-lg transition flex justify-center items-center gap-2">${isDisabled ? 'Out of Stock' : '⚡ Buy Now'}</button></div></div></div></div>`; 
 }; 
 export const HistoryTable = (transactions: Transaction[], nextCursor: string | null, activeTab: string) => { 
     let rows = ""; 
