@@ -13,7 +13,6 @@ app.use('*', async (c, next) => {
     const countRes = await kv.get<number>(key);
     const count = countRes.value || 0;
     
-    // Allow max 100 requests per minute
     if (count > 100) {
         return c.text("Too many requests. Please try again later.", 429);
     }
@@ -50,37 +49,45 @@ async function getApiAvailableStock(p: Product): Promise<number | string> {
 
 // --- 2. SECURE SESSION CHECK ---
 async function getSessionUser(c: any) {
-    // Get Session ID from Cookie (NOT Username)
     const sessionId = getCookie(c, "session_id");
     if (!sessionId) return null;
     
-    // Verify Session in Database
-    const username = await getSession(sessionId);
-    if (!username) return null;
-
-    return await getUser(username);
+    // Use try...catch inside for safe session retrieval
+    try {
+        const username = await getSession(sessionId);
+        if (!username) return null;
+        return await getUser(username);
+    } catch (e) {
+        console.error("Session/User retrieval failed:", e);
+        return null;
+    }
 }
 
 // --- APP ROUTES ---
 
 app.get("/", async (c) => {
+    let user = null;
+    let config = null;
+    let productsHtml = "";
+    
     try {
-        const user = await getSessionUser(c);
-        const config = await getConfig();
+        // 🔑 FIX 1: Safely load user and config first
+        user = await getSessionUser(c);
+        config = await getConfig();
+
         if (config.maintenance && (!user || !user.isAdmin)) return c.html(MaintenancePage());
         if (!user) return c.redirect("/login");
         if(user.isBlocked) return c.redirect("/logout");
 
         const iter = kv.list<Product>({ prefix: ["products"] });
-        let productsHtml = "";
         
-        // 🔑 FIX: Add robust error handling for reading KV data
+        // 🔑 FIX 2: Deeply defensive loop to prevent ProductCard crash
         for await (const entry of iter) {
             const p = entry.value;
-            // Validate essential fields before calling ProductCard
+            // Basic validation to skip corrupted entries
             if (!p || !p.id || !p.name || typeof p.price !== 'number' || !p.type) {
                 console.warn(`Skipping invalid product entry with key: ${entry.key}`);
-                continue; // Skip this corrupted entry
+                continue; 
             }
             try {
                 productsHtml += ProductCard(p);
@@ -100,13 +107,14 @@ app.get("/", async (c) => {
         `, user, config.banner));
         
     } catch (e) {
-        // 🔑 FIX: Catch any unexpected errors during initial load and report them
-        console.error("Critical error in Homepage route:", e);
-        // You can return a custom error page or re-throw the error
-        return c.text("Internal Server Error: Failed to load products. Check server logs.", 500);
+        // 🔑 FIX 3: Catch any critical errors (like KV initialization failure)
+        console.error("Critical error loading homepage:", e);
+        
+        // Return a generic error page, or redirect to login/maintenance if user/config failed to load.
+        return c.html(Layout("Error", `<div class="max-w-md mx-auto p-10 text-center bg-red-900/30 rounded-xl mt-10"><h1 class="text-2xl font-bold text-red-400 mb-4">Internal Server Error</h1><p class="text-slate-300">Failed to load the store. This is usually due to corrupted database entries or connection issues. The admin has been notified.</p><a href="/login" class="mt-4 inline-block text-blue-400 hover:text-blue-300">Try Logging In</a></div>`, user), 500);
     }
 });
-
+// ... (The rest of the main.ts code continues below, unchanged) ...
 app.get("/2d", async (c) => {
     const user = await getSessionUser(c);
     if (!user) return c.redirect("/login");
