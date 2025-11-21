@@ -55,7 +55,6 @@ export async function hashPassword(password: string) {
 // 2. Session Management
 export async function createSession(username: string, maxAgeSeconds: number = 86400) {
     const sessionId = crypto.randomUUID();
-    // Store session in KV with expiration
     await kv.set(["sessions", sessionId], username, { expireIn: maxAgeSeconds * 1000 });
     return sessionId;
 }
@@ -173,7 +172,26 @@ export async function processRefund(username: string, date: number, txId: string
 }
 
 export async function save2DResult(res: TwoDResult) {
+    // Key format: ["2d_results", date, time]
     await kv.set(["2d_results", res.date, res.time], res);
+}
+
+// 🔑 NEW FUNCTION: Retrieve historical 2D results from Deno KV
+export async function get2DHistory(limit: number = 20): Promise<TwoDResult[]> {
+    const results: TwoDResult[] = [];
+    
+    // List all entries that start with the prefix ["2d_results"] 
+    // and reverse the order to get the newest results first.
+    const iter = kv.list<TwoDResult>({ prefix: ["2d_results"] }, { 
+        limit: limit, 
+        reverse: true 
+    });
+
+    for await (const entry of iter) {
+        results.push(entry.value);
+    }
+    
+    return results;
 }
 
 export async function placeBet(username: string, number: string, amount: number, session: "Morning" | "Evening") {
@@ -212,3 +230,4 @@ export async function process2DWinnings(winningNumber: string, session: "Morning
     }
     return winCount;
 }
+
