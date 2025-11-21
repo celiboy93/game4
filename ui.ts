@@ -408,8 +408,11 @@ export const HistoryTable = (transactions: Transaction[], nextCursor: string | n
                 bg = 'bg-green-500/20'; 
             } 
             const dateStr = new Date(t.date).toLocaleString("en-US", { timeZone: "Asia/Yangon" }); 
-            // 🔑 FIX: Remove any reference to 'dateDisplay' which caused the error
-            return `<tr class="border-b border-slate-700 hover:bg-slate-800/50 transition"><td class="p-4 text-sm text-slate-400">${dateStr}</td><td class="p-4"><span class="px-2 py-1 rounded text-[10px] font-bold uppercase ${bg} ${color}">${t.type.replace('_', ' ')}</span></td><td class="p-4 font-medium text-white">${t.itemName} ${t.detail ? `<div class="text-xs text-slate-500 mt-1 font-mono truncate w-32 md:w-64">${t.detail.substring(0, 30)}...</div>` : ''}</td><td class="p-4 text-right ${color} font-bold">${sign}${t.amount.toLocaleString()} Ks</td></tr>`; 
+            // 🔑 FINAL FIX: Check t.detail exists and make sure no extraneous variables are used in the template string
+            const detailHtml = t.detail ? `<div class="text-xs text-slate-500 mt-1 font-mono truncate w-32 md:w-64">${t.detail.substring(0, 30)}...</div>` : '';
+
+            // This entire return string must be clean of uninitialized variables
+            return `<tr class="border-b border-slate-700 hover:bg-slate-800/50 transition"><td class="p-4 text-sm text-slate-400">${dateStr}</td><td class="p-4"><span class="px-2 py-1 rounded text-[10px] font-bold uppercase ${bg} ${color}">${t.type.replace('_', ' ')}</span></td><td class="p-4 font-medium text-white">${t.itemName} ${detailHtml}</td><td class="p-4 text-right ${color} font-bold">${sign}${t.amount.toLocaleString()} Ks</td></tr>`; 
         }).join(""); 
     } 
     const tabs = [{ id: 'all', label: 'All' }, { id: 'purchase', label: 'Purchases' }, { id: 'topup', label: 'Top Up' }]; 
