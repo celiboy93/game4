@@ -22,7 +22,6 @@ function toggleProductInputs() {
     else if (type === 'shared') document.getElementById('input-shared').style.display = 'block'; 
 } 
 
-// --- 🔑 NEW: Function to display error modal (Moved here for accessibility) ---
 function showErrorModal(message) {
     document.getElementById('errorMessage').innerText = message || "An unknown error occurred.";
     const btnContainer = document.getElementById('errorBtnContainer');
@@ -53,7 +52,7 @@ function handle2DBet(e) {
             document.getElementById('successModal').classList.remove('hidden'); 
             document.querySelectorAll('.balance-display').forEach(el => el.innerText = result.newBalance.toLocaleString() + " Ks"); 
             const closeBtn = document.querySelector('#successModal button:last-child'); 
-            closeBtn.onclick = () => window.location.reload(); // Reload after close to update bets list 
+            closeBtn.onclick = () => window.location.reload(); 
         } else { 
             showErrorModal(result.message); 
         } 
@@ -67,13 +66,12 @@ function handle2DBet(e) {
 } 
 
 
-// --- 🔑 NEW: Function to Fetch and Render 2D History from KV ---
+// --- Function to Fetch and Render 2D History from KV ---
 async function load2DHistory() {
     const listEl = document.getElementById('history-list');
     if (!listEl) return;
     listEl.innerHTML = '<div class="p-4 text-center text-slate-500 text-xs">Loading history...</div>';
     
-    // Use the API route that fetches from Deno KV
     try {
         const res = await fetch("/api/2d-history"); 
         const history = await res.json();
@@ -161,7 +159,7 @@ document.addEventListener("DOMContentLoaded", () => {
         el.classList.add('text-blue-500'); 
     } 
     
-    // 🔑 NEW: Load 2D History when the 2D page is active
+    // Load 2D History when the 2D page is active
     if (path === '/2d') {
         load2DHistory();
     }
@@ -374,7 +372,7 @@ export const ImageSlider = (images: string[]) => `<div class="relative w-full h-
 export const AuthForm = (type: "Login" | "Register", error?: string) => `<div class="max-w-md mx-auto glass p-8 rounded-2xl shadow-2xl mt-10"><h2 class="text-3xl font-bold text-center mb-6 text-white">${type}</h2>${error ? `<div class="bg-red-500/20 border border-red-500 text-red-200 p-3 rounded mb-4 text-center">${error}</div>` : ''}<form method="POST" class="space-y-4"><div><label class="block text-sm font-medium text-slate-400 mb-1">Username</label><input type="text" name="username" required class="w-full bg-slate-800 border border-slate-600 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 outline-none text-white"></div><div><label class="block text-sm font-medium text-slate-400 mb-1">Password</label><input type="password" name="password" required class="w-full bg-slate-800 border border-slate-600 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 outline-none text-white"></div>${type === 'Login' ? `<div class="flex justify-between items-center"><label class="flex items-center gap-2 text-slate-400 text-sm cursor-pointer"><input type="checkbox" name="remember" class="rounded bg-slate-800 border-slate-600 text-blue-600 focus:ring-blue-500">Remember me</label><a href="/forgot" class="text-sm text-blue-400 hover:text-blue-300">Forgot Password?</a></div>` : ''}<button class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-lg transition shadow-lg shadow-blue-500/30">${type}</button></form><p class="mt-4 text-center text-slate-400 text-sm">${type === 'Login' ? 'Don\'t have an account? <a href="/register" class="text-blue-400">Register</a>' : 'Already have an account? <a href="/login" class="text-blue-400">Login</a>'}</p></div>`; 
 export const MaintenancePage = () => `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Maintenance</title><script src="https://cdn.tailwindcss.com"></script><style>body { font-family: sans-serif; background-color: #0f172a; color: #e2e8f0; }</style></head><body class="h-screen flex flex-col items-center justify-center p-4 text-center"><div class="bg-slate-800 p-8 rounded-2xl border border-slate-700 shadow-2xl max-w-md w-full"><div class="text-6xl mb-4">🚧</div><h1 class="text-3xl font-bold text-white mb-2">Under Maintenance</h1><p class="text-slate-400 mb-6">We are currently updating our server. Please check back later.</p><a href="/login" class="text-sm text-slate-600 hover:text-slate-400">Admin Login</a></div></body></html>`; 
 export const ProductCard = (p: Product) => { 
-    // 🔑 FIX 1: Safely handle missing price values
+    // FIX 1: Safely handle missing price values
     const price = p.price || 0;
     const originalPrice = p.originalPrice || 0; 
     
@@ -384,7 +382,7 @@ export const ProductCard = (p: Product) => {
     const isDisabled = (!isManual && p.type !== 'api' && p.type !== 'shared') ? true : (isManual && manualStock === 0) || (p.type === 'shared' && (p.sharedCapacity||0) <= (p.sharedSold||0)); 
     const imageHtml = p.imageUrl ? `<img src="${p.imageUrl}" class="w-24 h-24 rounded-lg object-cover border border-slate-700 shadow-md" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="w-24 h-24 rounded-lg bg-slate-800 items-center justify-center text-3xl hidden border border-slate-700 shadow-md">🎮</div>` : `<div class="w-24 h-24 rounded-lg bg-slate-800 flex items-center justify-center text-3xl border border-slate-700 shadow-md">🎮</div>`; 
     
-    // 🔑 FIX 2: Use the safely derived price variables for toLocaleString()
+    // FIX 2: Use the safely derived price variables for toLocaleString()
     const priceDisplay = (originalPrice && originalPrice > price) ? 
         `<span class="text-xs text-slate-500 line-through mr-1 font-medium">${originalPrice.toLocaleString()} Ks</span><span class="text-xl font-bold text-blue-400">${price.toLocaleString()} Ks</span>` 
         : `<div class="text-xl font-bold text-blue-400">${price.toLocaleString()} Ks</div>`; 
@@ -410,6 +408,7 @@ export const HistoryTable = (transactions: Transaction[], nextCursor: string | n
                 bg = 'bg-green-500/20'; 
             } 
             const dateStr = new Date(t.date).toLocaleString("en-US", { timeZone: "Asia/Yangon" }); 
+            // 🔑 FIX: Remove any reference to 'dateDisplay' which caused the error
             return `<tr class="border-b border-slate-700 hover:bg-slate-800/50 transition"><td class="p-4 text-sm text-slate-400">${dateStr}</td><td class="p-4"><span class="px-2 py-1 rounded text-[10px] font-bold uppercase ${bg} ${color}">${t.type.replace('_', ' ')}</span></td><td class="p-4 font-medium text-white">${t.itemName} ${t.detail ? `<div class="text-xs text-slate-500 mt-1 font-mono truncate w-32 md:w-64">${t.detail.substring(0, 30)}...</div>` : ''}</td><td class="p-4 text-right ${color} font-bold">${sign}${t.amount.toLocaleString()} Ks</td></tr>`; 
         }).join(""); 
     } 
