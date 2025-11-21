@@ -1,6 +1,6 @@
 import { Hono } from "jsr:@hono/hono";
-import { getCookie, setCookie, deleteCookie } from "jsr:@hono/hono/cookie";
-// 🔑 FIX: MUST ensure get2DHistory is imported
+import { getCookie, setCookie, deleteCookie, deleteCookie as honoDeleteCookie } from "jsr:@hono/hono/cookie";
+// Must ensure get2DHistory is imported
 import { kv, User, Product, Transaction, GlobalSale, getUser, updateUser, getProduct, addHistory, isKeySold, markKeyAsSold, getConfig, setConfig, createVoucher, getVoucher, markVoucherUsed, addGlobalSale, processRefund, save2DResult, placeBet, TwoDBet, process2DWinnings, hashPassword, createSession, getSession, deleteSession, get2DHistory } from "./db.ts";
 import { Layout, AuthForm, ProductCard, HistoryTable, MaintenancePage, ProfilePage, TransferPage, AdminUserTable, AdminSalesTable, ImageSlider, TwoDPage } from "./ui.ts";
 
@@ -13,6 +13,7 @@ app.use('*', async (c, next) => {
     const countRes = await kv.get<number>(key);
     const count = countRes.value || 0;
     
+    // Allow max 100 requests per minute
     if (count > 100) {
         return c.text("Too many requests. Please try again later.", 429);
     }
@@ -61,7 +62,7 @@ async function getSessionUser(c: any) {
     } catch (e) {
         console.error("Session/User retrieval failed:", e);
         // If session or user data is corrupted, clear the session cookie
-        deleteCookie(c, "session_id");
+        honoDeleteCookie(c, "session_id"); // Use honoDeleteCookie if deleteSession is an async function or external
         return null; 
     }
 }
@@ -80,7 +81,6 @@ app.get("/", async (c) => {
 
         // If config loading failed and forced maintenance mode, redirect
         if (config.maintenance && (!user || !user.isAdmin)) {
-            // If the error occurred before login check, it means we can't show the page.
             return c.html(MaintenancePage());
         }
 
@@ -117,7 +117,7 @@ app.get("/", async (c) => {
     } catch (e) {
         // 3. Catch all critical errors and force redirection to login
         console.error("CRITICAL ERROR: Homepage route crashed the server.", e);
-        deleteCookie(c, "session_id");
+        honoDeleteCookie(c, "session_id");
         
         // Attempt to redirect to login, which is the safest external route.
         return c.redirect("/login"); 
@@ -206,7 +206,8 @@ app.get("/api/2d-proxy", async (c) => {
             if (historyData && historyData.length > 0) {
                 const last = historyData[0];
                 await save2DResult({ date: last.date, time: last.open_time, set: last.set, value: last.value, twod: last.twod });
-                return c.json({ live: { twod: last.twod, set: last.set, value: last.value, time: `Closed (${last.open_time})` });
+                // 🔑 FIX: Removed the extra closing parenthesis that caused the deployment error
+                return c.json({ live: { twod: last.twod, set: last.set, value: last.value, time: `Closed (${last.open_time})` } }); 
             }
         }
         return c.json(data);
@@ -217,11 +218,9 @@ app.get("/api/2d-proxy", async (c) => {
 app.get("/api/2d-history", async (c) => { 
     try { 
         const history = await get2DHistory(50); 
-        // Note: The frontend expects an array of history data.
         return c.json(history); 
     } catch (e) { 
         console.error("KV history fetch error:", e);
-        // Return empty array if error to prevent frontend crash
         return c.json([]); 
     } 
 });
@@ -446,7 +445,7 @@ app.post("/register", async (c) => {
 app.get("/logout", async (c) => {
     const sid = getCookie(c, "session_id");
     if(sid) await deleteSession(sid);
-    deleteCookie(c, "session_id");
+    honoDeleteCookie(c, "session_id");
     return c.redirect("/login");
 });
 
@@ -556,7 +555,7 @@ app.post("/admin/reset-password", async (c) => {
 });
 
 app.post("/admin/config", async (c) => {
-    const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); await setConfig("banner", body.banner as string); await setConfig("telegram", body.telegram as string); await setConfig("payment", body.payment as string); await setConfig("maintenance", body.maintenance === "on"); await setConfig("no_reg", body.noReg === "on"); await setConfig("bonus_active", body.bonusActive === "on"); await setConfig("bonus_amount", Number(body.bonusAmount)); await setConfig("manual_2d", body.manual2d as string); const images = [body.slider1, body.slider2, body.slider3].filter(url => url && url.toString().trim() !== ""); await setConfig("slider_images", images); return c.redirect("/admin");
+    const user = await getSessionUser(c); if (!user?.isAdmin) return c.redirect("/"); const body = await c.req.parseBody(); await setConfig("banner", body.banner as string); await setConfig("telegram", body.telegram as string); await setConfig("payment", body.payment as string); await setConfig("maintenance", body.maintenance === "on"); await setConfig("no_reg", body.noReg === "on"); await setConfig("bonus_active", body.bonusActive === "on"); await setConfig("bonus_amount", Number(body.bonusAmount)); await setConfig("manual2d", body.manual2d as string); const images = [body.slider1, body.slider2, body.slider3].filter(url => url && url.toString().trim() !== ""); await setConfig("slider_images", images); return c.redirect("/admin");
 });
 
 app.post("/admin/voucher", async (c) => {
