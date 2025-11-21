@@ -391,7 +391,8 @@ app.get("/logout", async (c) => {
 
 app.get("/forgot", async (c) => { const config = await getConfig(); return c.html(Layout("Forgot Password", `<div class="max-w-md mx-auto glass p-8 rounded-2xl shadow-2xl mt-10 text-center"><div class="text-5xl mb-4">🤔</div><h2 class="text-2xl font-bold text-white mb-4">Forgot Password?</h2><p class="text-slate-400 mb-6">Please contact the Admin on Telegram to reset your password.</p><a href="https://t.me/${config.telegram}" target="_blank" class="inline-block bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded-xl transition shadow-lg mb-4">Contact Admin</a><div><a href="/login" class="text-slate-500 hover:text-white text-sm">Back to Login</a></div></div>`)); });
 
-app.get("/admin", async (c) => {
+// --- 🔑 ADMIN ROUTE FIX: Moved 2D Payout POST route outside of the GET /admin route ---
+
 app.post("/admin/2d-payout", async (c) => {
     const user = await getSessionUser(c);
     
@@ -426,6 +427,65 @@ app.post("/admin/2d-payout", async (c) => {
         </div>
     `, user));
 });
+
+
+// --- Admin GET Route Start ---
+app.get("/admin", async (c) => {
+    try {
+        const user = await getSessionUser(c);
+        if (!user?.isAdmin) return c.redirect("/"); // Check once and redirect
+        
+        const prodIter = kv.list<Product>({ prefix: ["products"] });
+        let prodRows = "";
+        for await (const { value: p } of prodIter) { const stockDisplay = p.type === 'manual' ? p.stock.length : p.type === 'shared' ? `Limit: ${p.sharedSold}/${p.sharedCapacity}` : 'Auto (API)'; prodRows += `<tr class="border-b border-slate-700 hover:bg-slate-800"><td class="p-3">${p.name}</td><td class="p-3">${p.price.toLocaleString()} Ks</td><td class="p-3">${stockDisplay}</td><td class="p-3 flex gap-2"><a href="/admin/edit?id=${p.id}" class="text-yellow-400 hover:underline">Edit</a><form action="/admin/delete" method="POST" onsubmit="return confirm('Are you sure?')" style="margin:0;"><input type="hidden" name="id" value="${p.id}"><button class="text-red-400 hover:underline">Delete</button></form></td></tr>`; }
+        const userCursor = c.req.query("user_cursor"); const decodedUserCursor = userCursor ? decodeCursor(userCursor) : undefined;
+        const userIter = kv.list<User>({ prefix: ["users"] }, { limit: 10, cursor: decodedUserCursor });
+        let userListHtml = ""; let nextUserCursor = null;
+        for await (const { value: u, key } of userIter) { nextUserCursor = key; if (u.username !== user.username) { userListHtml += `<div class="flex justify-between items-center border-b border-slate-700 py-2 text-sm"><div><span class="text-slate-300 select-all cursor-pointer font-bold" onclick="document.querySelector('input[name=username]').value = '${u.username}'">${u.username}</span><span class="text-xs ml-2 ${u.isBlocked ? 'text-red-500' : 'text-green-500'}">${u.isBlocked ? '(Blocked)' : '(Active)'}</span></div><div class="flex items-center gap-2"><span class="text-green-400">${u.balance.toLocaleString()} Ks</span><form action="/admin/reset-password" method="POST" onsubmit="return confirm('Reset password for ${u.username} to 123456?')" style="margin:0;"><input type="hidden" name="username" value="${u.username}"><button class="text-xs px-2 py-1 rounded bg-blue-600 text-white" title="Reset Pass to 123456">🔑</button></form><form action="/admin/block" method="POST" style="margin:0;"><input type="hidden" name="username" value="${u.username}"><input type="hidden" name="status" value="${u.isBlocked ? 'unblock' : 'block'}"><button class="text-xs px-2 py-1 rounded ${u.isBlocked ? 'bg-green-600' : 'bg-red-600'} text-white">${u.isBlocked ? 'Unblock' : 'Block'}</button></form></div></div>`; } }
+        const encodedUserCursor = nextUserCursor ? encodeCursor(nextUserCursor) : null;
+        const saleCursor = c.req.query("sale_cursor"); const decodedSaleCursor = saleCursor ? decodeCursor(saleCursor) : undefined;
+        const saleIter = kv.list<GlobalSale>({ prefix: ["global_sales"] }, { limit: 10, reverse: true, cursor: decodedSaleCursor });
+        const sales: GlobalSale[] = []; let nextSaleCursor = null;
+        for await (const entry of saleIter) { sales.push(entry.value); nextSaleCursor = entry.key; }
+        const encodedSaleCursor = nextSaleCursor ? encodeCursor(nextSaleCursor) : null;
+        const config = await getConfig();
+        const now = new Date().toLocaleString("en-US", { timeZone: "Asia/Yangon" });
+        const hour = new Date(now).getHours();
+        const defaultSession = hour < 12 ? "Morning" : "Evening";
+        return c.html(Layout("Admin", `
+            <div class="grid lg:grid-cols-3 gap-8">
+              <div class="lg:col-span-1 space-y-6">
+                <div class="glass p-6 rounded-xl border-l-4 border-blue-500 space-y-4">
+                    <h3 class="text-xl font-bold text-white">🎰 2D Manager</h3>
+                    <form action="/admin/config" method="POST" class="space-y-2 border-b border-slate-700 pb-4"><label class="text-xs text-green-400 uppercase font-bold">Manual Result (Override API)</label><div class="flex gap-2"><input name="manual2d" value="${config.manual2d}" placeholder="e.g. 85" class="w-full bg-slate-800 border border-green-500 rounded p-2 text-white text-center text-lg font-bold"><button class="bg-green-600 text-white px-3 rounded font-bold">Set</button></div><p class="text-[10px] text-slate-500">Clear to use API again.</p><input type="hidden" name="banner" value="${config.banner}"><input type="hidden" name="telegram" value="${config.telegram}"><input type="hidden" name="payment" value="${config.payment}"><input type="hidden" name="bonusAmount" value="${config.bonusAmount}">${config.maintenance ? '<input type="hidden" name="maintenance" value="on">' : ''}${config.noReg ? '<input type="hidden" name="noReg" value="on">' : ''}${config.bonusActive ? '<input type="hidden" name="bonusActive" value="on">' : ''}${config.sliderImages.map(url => `<input type="hidden" name="slider1" value="${url}">`).join('')} </form>
+                    <form action="/admin/2d-payout" method="POST" class="space-y-3 pt-2" onsubmit="return confirm('Are you sure you want to PAYOUT? This cannot be undone.')"><label class="text-xs text-blue-400 uppercase font-bold">Process Winnings</label><div class="grid grid-cols-2 gap-2"><input name="number" placeholder="Win Number" required class="bg-slate-800 border border-slate-600 rounded p-2 text-white text-center font-bold"><input name="multiplier" type="number" value="80" placeholder="Odds (80)" required class="bg-slate-800 border border-slate-600 rounded p-2 text-white text-center"></div><select name="session" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><option value="Morning" ${defaultSession === 'Morning' ? 'selected' : ''}>Morning (12:01 PM)</option><option value="Evening" ${defaultSession === 'Evening' ? 'selected' : ''}>Evening (4:30 PM)</option></select><button class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 rounded transition shadow-lg">💸 Pay Winners</button></form>
+                </div>
+                <div class="glass p-6 rounded-xl border-l-4 border-yellow-500 space-y-4">
+                    <h3 class="text-xl font-bold text-white">⚙️ Config</h3>
+                    <form action="/admin/config" method="POST" class="space-y-3">
+                        <div class="grid grid-cols-2 gap-2"><label class="flex items-center space-x-2 cursor-pointer bg-slate-800 p-2 rounded border ${config.maintenance ? 'border-red-500' : 'border-slate-600'}"><input type="checkbox" name="maintenance" ${config.maintenance ? 'checked' : ''}><span class="text-xs text-white">Maintenance</span></label><label class="flex items-center space-x-2 cursor-pointer bg-slate-800 p-2 rounded border ${config.noReg ? 'border-red-500' : 'border-slate-600'}"><input type="checkbox" name="noReg" ${config.noReg ? 'checked' : ''}><span class="text-xs text-white">No Register</span></label></div>
+                        <div class="bg-slate-900/50 p-3 rounded border border-slate-600"><label class="flex items-center space-x-2 cursor-pointer mb-2"><input type="checkbox" name="bonusActive" ${config.bonusActive ? 'checked' : ''}><span class="text-xs text-green-400 font-bold uppercase">Welcome Bonus Active</span></label><input name="bonusAmount" type="number" value="${config.bonusAmount}" placeholder="Bonus Amount (Ks)" class="w-full bg-slate-800 border border-slate-600 rounded p-1 text-white text-sm"></div>
+                        <div><label class="text-xs text-slate-400 uppercase">Announcement</label><input name="banner" value="${config.banner}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm"></div>
+                        <div><label class="text-xs text-slate-400 uppercase">Telegram</label><input name="telegram" value="${config.telegram}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm"></div>
+                        <div><label class="text-xs text-slate-400 uppercase">Payment Details</label><textarea name="payment" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm h-20">${config.payment}</textarea></div>
+                        <div><label class="text-xs text-slate-400 uppercase">Slider Images (URLs)</label><input name="slider1" placeholder="Image 1 URL" value="${config.sliderImages[0] || ''}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm mb-1"><input name="slider2" placeholder="Image 2 URL" value="${config.sliderImages[1] || ''}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm mb-1"><input name="slider3" placeholder="Image 3 URL" value="${config.sliderImages[2] || ''}" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm"></div>
+                        <button class="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-2 rounded font-bold w-full">Update Settings</button>
+                    </form>
+                </div>
+                <div class="glass p-6 rounded-xl border-l-4 border-purple-500"><h3 class="text-xl font-bold text-white mb-4">🎟️ Create Voucher</h3><form action="/admin/voucher" method="POST" class="space-y-3"><input name="code" placeholder="Voucher Code (e.g. HAPPY)" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white uppercase"><div class="flex gap-2"><input name="amount" type="number" placeholder="Amount" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><button class="bg-purple-600 px-4 rounded text-white font-bold">Create</button></div></form></div>
+                <div class="glass p-6 rounded-xl"><h3 class="text-xl font-bold text-white mb-4">💰 User Top Up</h3><form action="/admin/topup" method="POST" class="space-y-3"><input name="username" placeholder="Username" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><div class="flex gap-2"><input name="amount" type="number" placeholder="Amount" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><button class="bg-blue-600 px-4 rounded text-white font-bold">Add</button></div></form></div>
+                <div class="glass p-6 rounded-xl"><h3 class="text-lg font-bold text-white mb-2">👥 Users</h3>${AdminUserTable(userListHtml, encodedUserCursor)}</div>
+              </div>
+              <div class="lg:col-span-2 space-y-8">
+                <div class="glass p-6 rounded-xl"><h3 class="text-xl font-bold text-white mb-4">➕ Add Product</h3><form action="/admin/add" method="POST" class="space-y-3"><div class="grid grid-cols-2 gap-4"><input name="name" placeholder="Name" required class="bg-slate-800 border border-slate-600 rounded p-2 text-white"><input name="price" type="number" placeholder="Price" required class="bg-slate-800 border border-slate-600 rounded p-2 text-white"></div><input name="desc" placeholder="Description" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><select name="type" id="productType" onchange="toggleProductInputs()" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white mb-2"><option value="manual">Manual Stock</option><option value="api">API Link</option><option value="shared">Shared (Multi-User)</option></select><div id="input-manual"><textarea name="data" placeholder="Codes (One per line)" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-20 mb-2"></textarea></div><div id="input-api" style="display:none"><textarea name="apiData" placeholder="API URL" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white h-20 mb-2"></textarea></div><div id="input-shared" style="display:none"><input name="sharedData" placeholder="Shared Code (e.w. VPN-123)" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white mb-2"><input name="sharedCapacity" type="number" placeholder="Limit (e.w. 50)" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white mb-2"></div><input name="originalPrice" type="number" placeholder="Original Price (Optional)" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white mb-2"><input name="imageUrl" placeholder="Image URL (Optional)" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white"><button class="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-2 rounded mt-3">Add Product</button></form></div>
+                <div class="glass p-6 rounded-xl overflow-x-auto"><h3 class="text-xl font-bold text-white mb-4">📦 Inventory</h3><table class="w-full text-left text-slate-300 text-sm"><thead class="bg-slate-700 text-white uppercase"><tr><th class="p-3">Name</th><th class="p-3">Price</th><th class="p-3">Stock</th><th class="p-3">Actions</th></tr></thead><tbody>${prodRows}</tbody></table></div>
+                ${AdminSalesTable(sales, encodedSaleCursor)}
+              </div>
+            </div>
+          `, user));
+    } catch (e) { return c.html(Layout("Admin Error", `<div class="max-w-md mx-auto glass p-8 rounded-xl text-center mt-10"><h1 class="text-2xl font-bold text-red-400 mb-4">Admin Panel Error</h1><pre class="text-left bg-slate-900 p-4 rounded text-xs text-slate-400 overflow-x-auto mb-4">${e}</pre><a href="/" class="bg-slate-700 text-white px-6 py-2 rounded hover:bg-slate-600">Back Home</a></div>`, await getSessionUser(c))); }
+});
+
   try {
       const user = await getSessionUser(c);
       if (!user?.isAdmin) return c.redirect("/");
