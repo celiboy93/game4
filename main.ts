@@ -392,6 +392,40 @@ app.get("/logout", async (c) => {
 app.get("/forgot", async (c) => { const config = await getConfig(); return c.html(Layout("Forgot Password", `<div class="max-w-md mx-auto glass p-8 rounded-2xl shadow-2xl mt-10 text-center"><div class="text-5xl mb-4">🤔</div><h2 class="text-2xl font-bold text-white mb-4">Forgot Password?</h2><p class="text-slate-400 mb-6">Please contact the Admin on Telegram to reset your password.</p><a href="https://t.me/${config.telegram}" target="_blank" class="inline-block bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded-xl transition shadow-lg mb-4">Contact Admin</a><div><a href="/login" class="text-slate-500 hover:text-white text-sm">Back to Login</a></div></div>`)); });
 
 app.get("/admin", async (c) => {
+app.post("/admin/2d-payout", async (c) => {
+    const user = await getSessionUser(c);
+    
+    // Admin Check
+    if (!user || !user.isAdmin) {
+        return c.html(Layout("403 Forbidden", `<div class="p-8 text-center"><h2 class="text-red-400 text-xl mb-4">Access Denied (403)</h2><p class="text-slate-300">Your account does not have admin privileges for this action.</p><a href="/" class="text-blue-400 mt-4 block">Go Home</a></div>`, user));
+    }
+    
+    const body = await c.req.parseBody();
+    const winningNumber = (body.number as string).trim();
+    const session = body.session as "Morning" | "Evening";
+    const multiplier = Number(body.multiplier);
+
+    // Validation
+    if (!winningNumber || isNaN(multiplier) || multiplier <= 0 || !/^\d{2}$/.test(winningNumber)) {
+        return c.html(Layout("Admin Error", `<div class="p-8 text-center text-red-400">Invalid Win Number or Multiplier.</div>`, user));
+    }
+
+    // Process Winnings
+    const count = await process2DWinnings(winningNumber, session, multiplier);
+    
+    return c.html(Layout("Payout Success", `
+        <div class="max-w-md mx-auto glass p-8 rounded-2xl text-center mt-10">
+            <div class="text-5xl mb-4">💸</div>
+            <h2 class="text-2xl font-bold text-green-400 mb-2">Payout Complete!</h2>
+            <p class="text-slate-300 mb-4">
+                Winning Number: <span class="text-yellow-400 font-bold">${winningNumber}</span><br>
+                Session: ${session}<br>
+                Winners Paid: <span class="text-green-400 font-bold">${count}</span>
+            </p>
+            <a href="/admin" class="bg-slate-700 text-white px-6 py-2 rounded-lg hover:bg-slate-600">Back to Admin</a>
+        </div>
+    `, user));
+});
   try {
       const user = await getSessionUser(c);
       if (!user?.isAdmin) return c.redirect("/");
